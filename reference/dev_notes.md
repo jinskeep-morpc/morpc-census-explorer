@@ -1,5 +1,38 @@
 # Dev Notes
 
+## 2026-05-17 00:03 — Phase 3: Data selection UI
+
+Branch: `phase-3-data-selection-ui` → PR #4
+
+### What changed
+
+- **`app/selectors.py`** — Five option-builder functions used by the layout and callbacks:
+  - `topic_options()` — from `HIGHLEVEL_GROUP_DESC`, no network call
+  - `vintage_options()` — from `Endpoint.vintages`, LRU-cached, falls back to `range(2023, 2008, -1)` on error
+  - `scope_options()` — from `SCOPES.keys()`, LRU-cached, falls back to `[]`
+  - `sumlevel_options()` — from `morpc.SUMLEVEL_DESCRIPTIONS`, LRU-cached, falls back to `[]`
+  - `group_options_for_topic(topic_code, vintage)` — filters `Endpoint.groups` by `code[1:3] == topic_code`, LRU-cached per topic+vintage, falls back to `[]`
+
+- **`app/layout.py`** — Full Dash layout with dbc.Card holding two rows of selectors (topic+group; vintage+scope+sumlevel) and a disabled Fetch button. Topic/vintage/scope/sumlevel options are populated at layout creation time; group options start empty.
+
+- **`app/callbacks.py`** — Two callbacks registered via `register_callbacks(app)`:
+  - `update_group_options(topic_code)` → repopulates group dropdown when topic changes
+  - `toggle_fetch_button(...)` → enables Fetch only when all five selectors have a value
+  - Business logic split into `compute_group_options()` and `compute_fetch_button_disabled()` (plain functions, testable without Dash context)
+
+- **`app/main.py`** — Replaced placeholder layout with `make_layout()` + `register_callbacks(app)`
+
+- **`tests/test_selectors.py`** — Tests for all five selector functions; network-dependent ones use mocked `Endpoint` objects
+- **`tests/test_callbacks.py`** — Tests for `compute_group_options` and `compute_fetch_button_disabled`
+
+### Key decisions
+
+- Callback logic extracted into plain functions (`compute_*`) because Dash-decorated callbacks require the Dash server context and can't be called directly in unit tests.
+- `scope_options` and `sumlevel_options` fall back to `[]` when morpc fails (the `morpc` package makes a Census API network call on import that fails in some dev environments).
+- `lru_cache(maxsize=len(HIGHLEVEL_GROUP_DESC))` on `group_options_for_topic` avoids re-fetching groups when a user switches between topics they've already visited.
+
+---
+
 ## 2026-05-17 00:03 — Phase 2: Database cache layer
 
 Branch: `phase-2-database-cache` → PR #2
