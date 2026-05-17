@@ -84,10 +84,10 @@ python -m app.main
 
 ### Phase 6 — Polish
 
-- [ ] Loading spinners during fetch
-- [ ] User-facing error messages (bad scope/sumlevel combo, API timeout)
-- [ ] MORPC colour theme applied to Dash components
-- [ ] CI: GitHub Actions running lint + import check
+- [x] Loading spinners during fetch
+- [x] User-facing error messages (bad scope/sumlevel combo, API timeout)
+- [x] MORPC colour theme applied to Dash components
+- [x] CI: GitHub Actions running lint + import check
 
 ---
 
