@@ -18,6 +18,8 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "alembic>=1.13",
     "python-dotenv>=1.0",
+    "frictionless>=5.0",
+    "xlsxwriter>=3.0",
 ]
 
 [project.optional-dependencies]

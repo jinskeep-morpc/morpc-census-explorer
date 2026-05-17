@@ -78,9 +78,9 @@ python -m app.main
 
 ### Phase 5 — Export
 
-- [ ] Frictionless export: `CensusAPI.save()` → zip download
-- [ ] Excel export: `morpc.plot.ExcelChart` → `.xlsx` download
-- [ ] Download buttons in the UI
+- [x] Frictionless export: `CensusAPI.save()` → zip download
+- [x] Excel export: `morpc.plot.ExcelChart` → `.xlsx` download
+- [x] Download buttons in the UI
 
 ### Phase 6 — Polish
 
