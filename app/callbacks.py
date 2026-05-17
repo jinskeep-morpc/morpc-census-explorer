@@ -38,25 +38,41 @@ def compute_fetch_button_disabled(
     return not all([topic, group, vintages, scope, sumlevel])
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Return a concise, user-facing error message from an exception."""
+    name = type(exc).__name__
+    msg = str(exc)
+    if "OperationalError" in name or "connection" in msg.lower():
+        return "Database connection failed. Is the DB service running?"
+    if "Timeout" in name or "timeout" in msg.lower():
+        return "Census API request timed out. Try again in a moment."
+    if "KeyError" in name:
+        return f"Unexpected data format ({msg}). The Census API response may have changed."
+    return f"{name}: {msg}"
+
+
 def compute_fetch_and_store(
     n_clicks: int | None,
     group_code: str,
     vintages: list[int],
     scope: str,
     sumlevel: str,
-) -> tuple[dict | None, str]:
+) -> tuple[dict | None, str, str, bool]:
     """Fetch all vintages and return serialised long DataFrame + status message.
 
-    Returns (store_data, status_text).
+    Returns (store_data, status_text, error_message, error_is_open).
     """
     session = None
     try:
         session = SessionLocal()
         long_df = fetch_all_vintages(session, group_code, vintages, scope, sumlevel)
+        if long_df.empty:
+            return no_update, "", "No data returned for the selected combination.", True
         row_count = len(long_df)
-        return serialise_long(long_df), f"Loaded {row_count:,} rows for {group_code}."
+        return serialise_long(long_df), f"Loaded {row_count:,} rows for {group_code}.", "", False
     except Exception as exc:
-        return no_update, f"Error fetching data: {exc}"
+        logger.exception("Fetch failed for group=%s vintages=%s", group_code, vintages)
+        return no_update, "", _friendly_error(exc), True
     finally:
         if session is not None:
             session.close()
@@ -145,6 +161,8 @@ def register_callbacks(app: dash.Dash) -> None:
     @app.callback(
         Output("long-data-store", "data"),
         Output("fetch-status", "children"),
+        Output("fetch-error-alert", "children"),
+        Output("fetch-error-alert", "is_open"),
         Input("fetch-button", "n_clicks"),
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
