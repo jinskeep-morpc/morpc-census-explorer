@@ -1,5 +1,34 @@
 # Dev Notes
 
+## 2026-05-17 00:03 — Phase 5: Export
+
+Branch: `phase-5-export` → PR #8
+
+### What changed
+
+- **`app/exports.py`** — Two export functions:
+  - `export_frictionless(long_df, group_code, vintages)`: writes long CSV + auto-generated frictionless schema YAML + resource YAML to a temp dir, zips all three, returns bytes. Uses `frictionless` package directly rather than `CensusAPI.save()` (which requires the full API object with variable metadata). Field types are inferred from pandas dtypes.
+  - `export_excel(long_df, group_code, value_types)`: pivots via `DimensionTable.wide()`, filters to selected value types, writes to BytesIO. Tries `morpc.plot.ExcelChart` first; falls back to `pandas.ExcelWriter(engine='xlsxwriter')` when morpc fails to import (morpc triggers a Census API network call on `__init__`). `ExcelChart` imported at module level (with try/except) so tests can patch `app.exports.ExcelChart`.
+
+- **`app/layout.py`** — Added `dcc.Download` components (`download-frictionless`, `download-excel`) and two `dbc.Button` export buttons inside the value-type filter card.
+
+- **`app/callbacks.py`** — Added:
+  - `compute_frictionless_download` / `download_frictionless`: triggered by Frictionless button click; reads Store + group/vintage State; returns `dcc.send_bytes()` payload
+  - `compute_excel_download` / `download_excel`: same pattern for Excel; also reads value-type checklist State
+  - `logger` added at module level; `dcc` imported at module level for `dcc.send_bytes`
+
+- **`pyproject.toml`** — Added `frictionless>=5.0` and `xlsxwriter>=3.0` as explicit dependencies (they were already available transitively via morpc-census and morpc)
+
+- **`tests/test_exports.py`** — 20 tests covering zip structure/contents, xlsx format, fallback path, and download callback return values
+
+### Key decisions
+
+- Frictionless export does NOT use `CensusAPI.save()`: that method requires the full `CensusAPI` object (for `define_schema()` which needs `self.vars`). For multi-vintage data, we'd need one API object per vintage anyway. Using `frictionless` directly from the DataFrame is simpler and handles multi-vintage naturally.
+- `ExcelChart` imported at module level with a silent `except Exception: ExcelChart = None` so that: (1) the module is always importable, and (2) the name is patchable in tests. When `None`, `ExcelChart(...)` raises `TypeError` which is caught by the existing try/except, triggering the pandas fallback.
+- Excel export filters to the same value types the user has selected in the checklist, so the download matches what they see in the table.
+
+---
+
 ## 2026-05-17 00:03 — Phase 4: Data fetch and table display
 
 Branch: `phase-4-data-fetch-display` → PR #6
