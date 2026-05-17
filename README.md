@@ -62,12 +62,12 @@ python -m app.main
 
 ### Phase 3 — Data selection UI
 
-- [ ] Topic dropdown (from `HIGHLEVEL_GROUP_DESC`)
-- [ ] Group browser filtered by topic
-- [ ] Multi-select vintage picker
-- [ ] Scope selector
-- [ ] SumLevel selector
-- [ ] Chained Dash callbacks: each selector populates the next
+- [x] Topic dropdown (from `HIGHLEVEL_GROUP_DESC`)
+- [x] Group browser filtered by topic
+- [x] Multi-select vintage picker
+- [x] Scope selector
+- [x] SumLevel selector
+- [x] Chained Dash callbacks: each selector populates the next
 
 ### Phase 4 — Data fetch and table display
 
