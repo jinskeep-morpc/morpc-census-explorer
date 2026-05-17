@@ -1,0 +1,35 @@
+[project]
+name = "morpc-census-explorer"
+version = "0.1.0"
+description = "Dash web app for exploring US Census ACS 5-year data via morpc-census"
+authors = [
+    {name = "MORPC data team", email = "dataandmaps@morpc.org"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "morpc>=0.4.3",
+    "morpc-census>=0.1.0",
+    "dash>=2.14",
+    "dash-bootstrap-components>=1.5",
+    "pandas>=2.0",
+    "geopandas>=0.14",
+    "sqlalchemy>=2.0",
+    "geoalchemy2>=0.14",
+    "psycopg2-binary>=2.9",
+    "alembic>=1.13",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
