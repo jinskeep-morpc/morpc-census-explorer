@@ -71,10 +71,10 @@ python -m app.main
 
 ### Phase 4 — Data fetch and table display
 
-- [ ] Cache-first fetch: check PostGIS, fall back to Census API and write result to cache
-- [ ] Concatenate long DataFrames across selected vintages
-- [ ] Pivot with `DimensionTable.wide()` and display in `dash_table.DataTable`
-- [ ] Column filter for value type (estimate / MOE / percent)
+- [x] Cache-first fetch: check PostGIS, fall back to Census API and write result to cache
+- [x] Concatenate long DataFrames across selected vintages
+- [x] Pivot with `DimensionTable.wide()` and display in `dash_table.DataTable`
+- [x] Column filter for value type (estimate / MOE / percent)
 
 ### Phase 5 — Export
 

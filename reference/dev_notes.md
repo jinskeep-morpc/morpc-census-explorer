@@ -1,5 +1,39 @@
 # Dev Notes
 
+## 2026-05-17 00:03 — Phase 4: Data fetch and table display
+
+Branch: `phase-4-data-fetch-display` → PR #6
+
+### What changed
+
+- **`app/fetch.py`** — Core fetch/pivot module:
+  - `fetch_long_for_vintage`: reads PostGIS cache first; on miss, calls `CensusAPI(endpoint, scope, group, sumlevel)`, writes result to cache, returns `.long`
+  - `fetch_all_vintages`: loops over selected vintages, concatenates `.long` DataFrames; multi-vintage comparison works naturally because `reference_period` becomes a column-level in `DimensionTable.wide()`
+  - `build_wide_table`: calls `DimensionTable(long_df).wide()`, filters by selected value types, flattens MultiIndex to flat column IDs, returns `(data, columns)` for `dash_table.DataTable`
+  - `serialise_long` / `deserialise_long`: round-trip via `orient='split'`; `deserialise_long` casts `reference_period` back to int (JSON coerces ints to floats)
+
+- **`app/layout.py`** — Added:
+  - `dcc.Store(id="long-data-store")` for persisting long DataFrame between callbacks
+  - Status text next to Fetch button
+  - Value-type checklist card (hidden until data loads): Estimate / MOE / Percent Estimate / Percent MOE, default Estimate
+  - `data-output` div renders the DataTable
+
+- **`app/callbacks.py`** — Added two new callbacks (plus `compute_*` plain functions):
+  - `compute_fetch_and_store` / `fetch_and_store`: button click → fetches all vintages → writes to `long-data-store`; `SessionLocal()` is inside the try block so DB errors surface as status messages
+  - `compute_table` / `render_table`: triggered by Store change or checklist change → pivots and renders `dash_table.DataTable` with native sort + filter; also toggles visibility of the value-type card
+  - `Endpoint`, `Group`, `CensusAPI`, `DimensionTable`, `SessionLocal` all imported at module level so tests can patch them via `app.fetch.*` / `app.callbacks.*`
+
+- **`tests/test_fetch.py`** — 19 tests covering all fetch functions and round-trip serialisation
+
+### Key decisions
+
+- `Endpoint`, `Group`, `CensusAPI`, `DimensionTable` moved to module-level imports in `fetch.py` (lazy imports inside functions block `patch()` in tests)
+- `SessionLocal()` moved inside the `try` block so connection failures are caught and returned as status messages rather than crashing the callback
+- `build_wide_table` iterates `wide.iterrows()` directly (avoids `reset_index()` complexity with mixed-type MultiIndex columns)
+- MultiIndex column IDs are joined with `__` as separator; the `__dim_N__` prefix identifies dimension/row-label columns in the DataTable
+
+---
+
 ## 2026-05-17 00:03 — Phase 3: Data selection UI
 
 Branch: `phase-3-data-selection-ui` → PR #4
