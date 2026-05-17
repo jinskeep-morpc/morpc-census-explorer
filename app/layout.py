@@ -1,7 +1,7 @@
 """Top-level Dash layout for morpc-census-explorer."""
 
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
 from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
 
@@ -18,6 +18,9 @@ def make_layout() -> dbc.Container:
         [
             # Client-side store for the long DataFrame (survives filter changes without re-fetch)
             dcc.Store(id="long-data-store"),
+            # Download triggers
+            dcc.Download(id="download-frictionless"),
+            dcc.Download(id="download-excel"),
 
             # Header
             dbc.Row(
@@ -132,18 +135,53 @@ def make_layout() -> dbc.Container:
                 )
             ),
 
-            # Value-type filter (shown only when data is loaded)
+            # Value-type filter + export buttons (shown only when data is loaded)
             dbc.Row(
                 dbc.Col(
                     dbc.Card(
                         dbc.CardBody(
                             [
-                                dbc.Label("Show value type(s):", className="fw-bold"),
-                                dbc.Checklist(
-                                    id="value-type-checklist",
-                                    options=_VALUE_TYPE_OPTIONS,
-                                    value=["estimate"],
-                                    inline=True,
+                                dbc.Row(
+                                    [
+                                        dbc.Col(
+                                            [
+                                                dbc.Label("Show value type(s):", className="fw-bold"),
+                                                dbc.Checklist(
+                                                    id="value-type-checklist",
+                                                    options=_VALUE_TYPE_OPTIONS,
+                                                    value=["estimate"],
+                                                    inline=True,
+                                                ),
+                                            ],
+                                            md=8,
+                                        ),
+                                        dbc.Col(
+                                            [
+                                                dbc.Label("Export:", className="fw-bold"),
+                                                dbc.ButtonGroup(
+                                                    [
+                                                        dbc.Button(
+                                                            "Frictionless (zip)",
+                                                            id="export-frictionless-btn",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            size="sm",
+                                                        ),
+                                                        dbc.Button(
+                                                            "Excel (.xlsx)",
+                                                            id="export-excel-btn",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            size="sm",
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            md=4,
+                                            className="d-flex flex-column align-items-end",
+                                        ),
+                                    ],
+                                    align="center",
                                 ),
                             ]
                         ),

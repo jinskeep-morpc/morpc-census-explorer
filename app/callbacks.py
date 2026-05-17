@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 import dash
-from dash import Input, Output, State, dash_table, no_update
+from dash import Input, Output, State, dash_table, dcc, no_update
+
+logger = logging.getLogger(__name__)
 
 from app.db import SessionLocal
+from app.exports import export_excel, export_frictionless
 from app.fetch import build_wide_table, deserialise_long, fetch_all_vintages, serialise_long
 from app.selectors import group_options_for_topic
 
@@ -73,6 +78,45 @@ def compute_table(
     return data, columns, {"display": "block"}
 
 
+def compute_frictionless_download(
+    store_data: dict | None,
+    group_code: str | None,
+    vintages: list[int] | None,
+) -> dict | None:
+    """Return dcc.send_bytes payload for frictionless zip, or None on error."""
+    if not store_data or not group_code or not vintages:
+        return no_update
+    try:
+        long_df = deserialise_long(store_data)
+        zip_bytes = export_frictionless(long_df, group_code, vintages)
+        vintage_str = "_".join(str(v) for v in sorted(vintages))
+        filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
+        return dcc.send_bytes(zip_bytes, filename)
+    except Exception as exc:
+        logger.error("Frictionless export failed: %s", exc)
+        return no_update
+
+
+def compute_excel_download(
+    store_data: dict | None,
+    group_code: str | None,
+    value_types: list[str] | None,
+    vintages: list[int] | None,
+) -> dict | None:
+    """Return dcc.send_bytes payload for Excel .xlsx, or no_update on error."""
+    if not store_data or not group_code or not value_types:
+        return no_update
+    try:
+        long_df = deserialise_long(store_data)
+        xlsx_bytes = export_excel(long_df, group_code, value_types)
+        vintage_str = "_".join(str(v) for v in sorted(vintages or []))
+        filename = f"census-acs5-{group_code.lower()}-{vintage_str}.xlsx"
+        return dcc.send_bytes(xlsx_bytes, filename)
+    except Exception as exc:
+        logger.error("Excel export failed: %s", exc)
+        return no_update
+
+
 # ---------------------------------------------------------------------------
 # Dash registration
 # ---------------------------------------------------------------------------
@@ -132,3 +176,26 @@ def register_callbacks(app: dash.Dash) -> None:
             style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa"},
         )
         return table, card_style
+
+    @app.callback(
+        Output("download-frictionless", "data"),
+        Input("export-frictionless-btn", "n_clicks"),
+        State("long-data-store", "data"),
+        State("group-dropdown", "value"),
+        State("vintage-dropdown", "value"),
+        prevent_initial_call=True,
+    )
+    def download_frictionless(n_clicks, store_data, group_code, vintages):
+        return compute_frictionless_download(store_data, group_code, vintages)
+
+    @app.callback(
+        Output("download-excel", "data"),
+        Input("export-excel-btn", "n_clicks"),
+        State("long-data-store", "data"),
+        State("group-dropdown", "value"),
+        State("vintage-dropdown", "value"),
+        State("value-type-checklist", "value"),
+        prevent_initial_call=True,
+    )
+    def download_excel(n_clicks, store_data, group_code, vintages, value_types):
+        return compute_excel_download(store_data, group_code, value_types, vintages)
