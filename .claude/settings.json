@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mypy *)",
+      "Bash(ruff format --check *)",
+      "Bash(podman logs *)",
+      "Bash(podman inspect *)"
+    ]
+  }
+}
