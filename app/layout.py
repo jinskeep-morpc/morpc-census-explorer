@@ -1,18 +1,29 @@
 """Top-level Dash layout for morpc-census-explorer."""
 
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import dash_table, dcc, html
 
 from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
+
+_VALUE_TYPE_OPTIONS = [
+    {"label": "Estimate", "value": "estimate"},
+    {"label": "MOE", "value": "moe"},
+    {"label": "Percent Estimate", "value": "percent_estimate"},
+    {"label": "Percent MOE", "value": "percent_moe"},
+]
 
 
 def make_layout() -> dbc.Container:
     return dbc.Container(
         [
+            # Client-side store for the long DataFrame (survives filter changes without re-fetch)
+            dcc.Store(id="long-data-store"),
+
             # Header
             dbc.Row(
                 dbc.Col(html.H2("MORPC Census Explorer", className="my-3"))
             ),
+
             # Selector card
             dbc.Row(
                 dbc.Col(
@@ -50,6 +61,7 @@ def make_layout() -> dbc.Container:
                                     ],
                                     className="mb-3",
                                 ),
+
                                 # Row 2: vintage + scope + sumlevel
                                 dbc.Row(
                                     [
@@ -92,25 +104,62 @@ def make_layout() -> dbc.Container:
                                     ],
                                     className="mb-3",
                                 ),
-                                # Row 3: fetch button
+
+                                # Row 3: fetch button + status
                                 dbc.Row(
-                                    dbc.Col(
-                                        dbc.Button(
-                                            "Fetch Data",
-                                            id="fetch-button",
-                                            color="primary",
-                                            disabled=True,
-                                        )
-                                    )
+                                    [
+                                        dbc.Col(
+                                            dbc.Button(
+                                                "Fetch Data",
+                                                id="fetch-button",
+                                                color="primary",
+                                                disabled=True,
+                                            ),
+                                            width="auto",
+                                        ),
+                                        dbc.Col(
+                                            html.Small(
+                                                id="fetch-status",
+                                                className="text-muted align-self-center",
+                                            )
+                                        ),
+                                    ],
+                                    align="center",
                                 ),
                             ]
                         )
                     )
                 )
             ),
-            # Output area (populated in Phase 4)
+
+            # Value-type filter (shown only when data is loaded)
             dbc.Row(
-                dbc.Col(html.Div(id="data-output"), className="mt-3")
+                dbc.Col(
+                    dbc.Card(
+                        dbc.CardBody(
+                            [
+                                dbc.Label("Show value type(s):", className="fw-bold"),
+                                dbc.Checklist(
+                                    id="value-type-checklist",
+                                    options=_VALUE_TYPE_OPTIONS,
+                                    value=["estimate"],
+                                    inline=True,
+                                ),
+                            ]
+                        ),
+                        className="mt-3",
+                    ),
+                    id="value-type-card",
+                    style={"display": "none"},
+                )
+            ),
+
+            # Data table output
+            dbc.Row(
+                dbc.Col(
+                    html.Div(id="data-output"),
+                    className="mt-3",
+                )
             ),
         ],
         fluid=True,
