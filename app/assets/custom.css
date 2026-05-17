@@ -1,0 +1,81 @@
+/* MORPC Census Explorer — brand theme
+   Colours from morpc/color/morpc_colors_2026.yaml:
+     Green  key: #8DC63F  (G3)   dark: #6E9F3A (G2)   light: #E3F0D6 (G6)
+     Blue   key: #064A8C  (B3)
+     Sky    key: #74C3D5  (S3)
+*/
+
+:root {
+  --morpc-green:       #8DC63F;
+  --morpc-green-dark:  #6E9F3A;
+  --morpc-green-light: #E3F0D6;
+  --morpc-blue:        #064A8C;
+  --morpc-sky:         #74C3D5;
+}
+
+/* ── App header ─────────────────────────────────────────────── */
+.morpc-header {
+  background-color: var(--morpc-blue);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.375rem;
+}
+
+.morpc-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── Primary button (Fetch Data) ─────────────────────────────── */
+.btn-primary {
+  background-color: var(--morpc-green) !important;
+  border-color: var(--morpc-green-dark) !important;
+  color: #fff !important;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+  background-color: var(--morpc-green-dark) !important;
+  border-color: var(--morpc-green-dark) !important;
+}
+
+.btn-primary:disabled {
+  background-color: var(--morpc-green) !important;
+  border-color: var(--morpc-green-dark) !important;
+  opacity: 0.55;
+}
+
+/* ── Secondary outline buttons (export) ──────────────────────── */
+.btn-outline-secondary {
+  border-color: var(--morpc-blue) !important;
+  color: var(--morpc-blue) !important;
+}
+
+.btn-outline-secondary:hover {
+  background-color: var(--morpc-blue) !important;
+  color: #fff !important;
+}
+
+/* ── Card accent border ───────────────────────────────────────── */
+.card {
+  border-left: 3px solid var(--morpc-green) !important;
+}
+
+/* ── DataTable header row ─────────────────────────────────────── */
+.dash-header {
+  background-color: var(--morpc-green-light) !important;
+  color: #243F00 !important;
+  font-weight: 600 !important;
+}
+
+/* ── DataTable filter row ─────────────────────────────────────── */
+.dash-filter input {
+  border-color: var(--morpc-sky) !important;
+}
+.dash-filter input:focus {
+  outline-color: var(--morpc-green) !important;
+  box-shadow: 0 0 0 0.15rem rgba(141, 198, 63, 0.35) !important;
+}
