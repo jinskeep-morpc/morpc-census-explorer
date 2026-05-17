@@ -55,10 +55,10 @@ python -m app.main
 
 ### Phase 2 — Database cache layer
 
-- [ ] `census_long` table: stores long-format DataFrames keyed by `(survey, vintage, group, scope, sumlevel)`
-- [ ] `geometry_cache` table: PostGIS geometry column keyed by `(scope, sumlevel, vintage, geoid)`
-- [ ] Cache read/write helpers in `app/cache.py`
-- [ ] Alembic initial migration
+- [x] `census_long` table: stores long-format DataFrames keyed by `(survey, vintage, group, scope, sumlevel)`
+- [x] `geometry_cache` table: PostGIS geometry column keyed by `(scope, sumlevel, vintage, geoid)`
+- [x] Cache read/write helpers in `app/cache.py`
+- [x] Alembic initial migration
 
 ### Phase 3 — Data selection UI
 
