@@ -24,7 +24,24 @@ def make_layout() -> dbc.Container:
 
             # Header
             dbc.Row(
-                dbc.Col(html.H2("MORPC Census Explorer", className="my-3"))
+                dbc.Col(
+                    html.Div(
+                        html.H2("MORPC Census Explorer"),
+                        className="morpc-header",
+                    )
+                )
+            ),
+
+            # Error alert (hidden until a fetch error occurs)
+            dbc.Row(
+                dbc.Col(
+                    dbc.Alert(
+                        id="fetch-error-alert",
+                        color="danger",
+                        is_open=False,
+                        dismissable=True,
+                    )
+                )
             ),
 
             # Selector card
@@ -192,10 +209,15 @@ def make_layout() -> dbc.Container:
                 )
             ),
 
-            # Data table output
+            # Data table output (wrapped in Loading spinner)
             dbc.Row(
                 dbc.Col(
-                    html.Div(id="data-output"),
+                    dcc.Loading(
+                        id="loading-output",
+                        type="default",
+                        color="var(--morpc-green)",
+                        children=html.Div(id="data-output"),
+                    ),
                     className="mt-3",
                 )
             ),

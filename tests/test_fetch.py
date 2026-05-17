@@ -197,16 +197,18 @@ class TestBuildWideTable:
 class TestComputeFetchAndStore:
     def test_returns_serialised_data_and_status(self):
         df = _make_long()
-        with patch("app.fetch.fetch_all_vintages", return_value=df), \
+        with patch("app.callbacks.fetch_all_vintages", return_value=df), \
              patch("app.callbacks.SessionLocal"):
-            store_data, status = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
         assert isinstance(store_data, dict)
         assert "B01001" in status
+        assert err_open is False
 
     def test_returns_error_message_on_exception(self):
         with patch("app.callbacks.SessionLocal", side_effect=Exception("db down")):
-            store_data, status = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
-        assert "Error" in status
+            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+        assert err_open is True
+        assert "db down" in err_msg or err_msg
 
 
 # ---------------------------------------------------------------------------

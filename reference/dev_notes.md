@@ -1,5 +1,45 @@
 # Dev Notes
 
+## 2026-05-17 — Phase 6: Polish
+
+Branch: `phase-6-polish` → PR #10
+
+### What changed
+
+- **`app/assets/custom.css`** — MORPC brand theme via CSS custom properties:
+  - `--morpc-green: #8DC63F`, `--morpc-green-dark: #6E9F3A`, `--morpc-green-light: #E3F0D6`, `--morpc-blue: #064A8C`, `--morpc-sky: #74C3D5`
+  - `.morpc-header`: blue header bar (white text, rounded corners, bottom margin)
+  - `.btn-primary`: green Fetch Data button (hover → dark green)
+  - `.btn-outline-secondary`: blue-bordered export buttons
+  - `.card`: green left accent border on all cards
+  - `.dash-header` / `.dash-filter`: light green table header bg, sky-blue filter row focus ring
+
+- **`app/layout.py`** — Three additions:
+  - `html.H2` wrapped in `html.Div(className="morpc-header")` for branded header
+  - `dbc.Alert(id="fetch-error-alert", color="danger", is_open=False, dismissable=True)` just below header
+  - `dcc.Loading(type="default", color="var(--morpc-green)")` wrapping the `data-output` div for spinner during fetch
+
+- **`app/callbacks.py`** — Two additions:
+  - `_friendly_error(exc)`: classifies `OperationalError` / `TimeoutError` / `KeyError` / generic exceptions into readable messages
+  - `compute_fetch_and_store` extended to 4-tuple return `(store_data, status_text, error_message, error_is_open)`; empty DataFrame now surfaces as an alert rather than silently showing no table; `fetch_and_store` callback wired to two additional outputs (`fetch-error-alert.children`, `fetch-error-alert.is_open`)
+
+- **`.github/workflows/ci.yml`** — GitHub Actions CI running on push/PR:
+  - Matrix: Python 3.10, 3.11, 3.12
+  - Steps: checkout → setup-python (pip cache) → `pip install -e ".[dev]"` → `ruff check` → `pytest tests/ -q`
+  - `DATABASE_URL` set to a fake local URL (tests mock the DB layer, no live DB needed)
+
+- **`tests/test_callbacks.py`** — Added `TestFriendlyError` (3 tests) and `TestComputeFetchAndStore` (4 tests) covering success, exception-opens-alert, and empty-DataFrame-opens-alert paths
+- **`tests/test_fetch.py`** — Updated two existing tests to unpack the new 4-tuple from `compute_fetch_and_store`
+
+### Key decisions
+
+- `_friendly_error` classifies by exception type name rather than `isinstance` so it works even when morpc-census exception classes aren't importable in the test environment.
+- Empty DataFrame surfaces as an alert (not a silent no-op) because users otherwise see a spinner that never resolves into a table.
+- `dcc.Loading` wraps only `data-output` (not the whole page) so the selector card remains interactive while a fetch is in progress.
+- CI uses `DATABASE_URL=postgresql://morpc:x@localhost/morpc_census` but all DB calls in tests are mocked — no live DB is needed for CI to pass.
+
+---
+
 ## 2026-05-17 00:03 — Phase 5: Export
 
 Branch: `phase-5-export` → PR #8
