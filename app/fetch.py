@@ -83,6 +83,24 @@ def get_available_dims(long_df: pd.DataFrame) -> list[str]:
     return [f"dim_{i}" for i in range(int(max_count) + 1)]
 
 
+def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
+    """Return dim column names that can be meaningfully dropped with ``method='summarize'``.
+
+    A dim is droppable only when the DimensionTable contains subtotal rows for it —
+    i.e. rows where that dim's value is the empty string (``''``).  Root dimensions
+    (``dim_0``) are typically always populated, so they are rarely droppable.
+    """
+    if long_df.empty:
+        return []
+    try:
+        dt = DimensionTable(long_df)
+        if dt.dims.empty:
+            return []
+        return [col for col in dt.dims.columns if (dt.dims[col] == "").any()]
+    except Exception:
+        return []
+
+
 def build_wide_table(
     long_df: pd.DataFrame,
     value_mode: str = "estimate",

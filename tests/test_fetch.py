@@ -13,6 +13,7 @@ from app.fetch import (
     fetch_all_vintages,
     fetch_long_for_vintage,
     get_available_dims,
+    get_droppable_dims,
     serialise_long,
 )
 
@@ -150,23 +151,42 @@ class TestSerialiseRoundTrip:
 # ---------------------------------------------------------------------------
 
 def _make_multi_dim_long():
-    """Two-dim long DF: variable_label has one '!!' separator."""
+    """Two-dim long DF matching real Census structure.
+
+    Subtotal rows (dim_1='') plus detail rows (dim_1 populated) so that
+    ``get_droppable_dims`` correctly identifies dim_1 as droppable.
+    """
+    def _row(label, var, est, moe):
+        return {
+            "geoidfq": "050US39049", "name": "Franklin County",
+            "reference_period": 2023, "survey": "acs/acs5",
+            "concept": "Sex by Age", "universe": "Total population",
+            "variable_label": label, "variable": var,
+            "estimate": est, "moe": moe,
+        }
     return pd.DataFrame([
-        {
-            "geoidfq": "050US39049", "name": "Franklin County",
-            "reference_period": 2023, "survey": "acs/acs5",
-            "concept": "Sex by Age", "universe": "Total population",
-            "variable_label": "Total:!!Male:", "variable": "B01001_002",
-            "estimate": 640000.0, "moe": 20000.0,
-        },
-        {
-            "geoidfq": "050US39049", "name": "Franklin County",
-            "reference_period": 2023, "survey": "acs/acs5",
-            "concept": "Sex by Age", "universe": "Total population",
-            "variable_label": "Total:!!Female:", "variable": "B01001_026",
-            "estimate": 680000.0, "moe": 22000.0,
-        },
+        # Subtotal rows — dim_1 will be '' after parsing
+        _row("Male:",   "B01001_002", 640_000.0, 20_000.0),
+        _row("Female:", "B01001_026", 680_000.0, 22_000.0),
+        # Detail rows — dim_1 populated
+        _row("Male:!!Under 5 years:",   "B01001_003", 40_000.0, 3_000.0),
+        _row("Female:!!Under 5 years:", "B01001_027", 38_000.0, 2_800.0),
     ])
+
+
+class TestGetDroppableDims:
+    def test_single_dim_returns_empty(self):
+        # Single-level labels → dim_0 is always populated → nothing droppable
+        assert get_droppable_dims(_make_long()) == []
+
+    def test_multi_dim_returns_leaf_dim(self):
+        # dim_1 has subtotal rows (value='') → droppable; dim_0 never ''
+        dims = get_droppable_dims(_make_multi_dim_long())
+        assert "dim_1" in dims
+        assert "dim_0" not in dims
+
+    def test_empty_df_returns_empty(self):
+        assert get_droppable_dims(pd.DataFrame()) == []
 
 
 class TestGetAvailableDims:
@@ -240,7 +260,8 @@ class TestBuildWideTable:
     def test_drop_reduces_dim_columns(self):
         df = _make_multi_dim_long()
         _, cols_nodrop = build_wide_table(df, "estimate", False, None)
-        _, cols_drop = build_wide_table(df, "estimate", False, ["dim_0"])
+        # Drop dim_1 (the droppable leaf dim) — keeps only subtotal rows
+        _, cols_drop = build_wide_table(df, "estimate", False, ["dim_1"])
         n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
         n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
         assert n_dim_drop < n_dim_nodrop

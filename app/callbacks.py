@@ -21,7 +21,7 @@ from app.fetch import (
     build_wide_table,
     deserialise_long,
     fetch_all_geos,
-    get_available_dims,
+    get_droppable_dims,
     serialise_long,
 )
 from app.selectors import group_options_for_topic
@@ -114,8 +114,8 @@ def compute_dim_controls(
     if not store_data:
         return [], {"display": "none"}
     long_df = deserialise_long(store_data)
-    all_dims = get_available_dims(long_df)
-    if len(all_dims) <= 1:
+    droppable = get_droppable_dims(long_df)
+    if not droppable:
         return [], {"display": "none"}
     dropped = set(dropped_dims or [])
     buttons = [
@@ -128,11 +128,90 @@ def compute_dim_controls(
             n_clicks=0,
             className="me-2",
         )
-        for dim in all_dims
+        for dim in droppable
         if dim not in dropped
     ]
     reset_style = {"display": "inline-block"} if dropped else {"display": "none"}
     return buttons, reset_style
+
+
+def compute_wide_data(
+    store_data: dict | None,
+    value_mode: str | None,
+    show_moe: bool | None,
+    dropped_dims: list[str] | None = None,
+) -> dict | None:
+    """Build the unfiltered wide table. Returns ``{"data": [...], "columns": [...]}`` or None."""
+    if not store_data:
+        return None
+    long_df = deserialise_long(store_data)
+    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
+    if not data:
+        return None
+    return {"data": data, "columns": columns}
+
+
+def compute_dim_filter_controls(wide_data: dict | None) -> list:
+    """Return a Dropdown for each dim column that has more than one unique value."""
+    if not wide_data:
+        return []
+    data = wide_data.get("data", [])
+    columns = wide_data.get("columns", [])
+    dim_cols = [c for c in columns if c["id"].startswith("__dim_")]
+    if not dim_cols:
+        return []
+    controls = []
+    for col in dim_cols:
+        col_id = col["id"]       # "__dim_0__"
+        col_name = col_id[2:-2]  # "dim_0"
+        unique_vals = sorted({
+            str(row[col_id])
+            for row in data
+            if row.get(col_id) not in (None, "")
+        })
+        if len(unique_vals) <= 1:
+            continue
+        controls.append(
+            html.Span(
+                [
+                    dbc.Label(col["name"], className="small me-1 mb-0 fw-semibold"),
+                    dcc.Dropdown(
+                        id={"type": "dim-filter", "index": col_name},
+                        options=[{"label": v, "value": v} for v in unique_vals],
+                        value=None,
+                        multi=True,
+                        placeholder="All…",
+                        style={"minWidth": "180px"},
+                    ),
+                ],
+                className="d-inline-flex align-items-center gap-1 me-3",
+            )
+        )
+    return controls
+
+
+def apply_dim_filters(
+    wide_data: dict | None,
+    filters: dict[str, list],
+) -> tuple[list[dict], list[dict]]:
+    """Filter wide table rows by dim column selections.
+
+    Parameters
+    ----------
+    wide_data:
+        Dict from ``compute_wide_data`` with ``"data"`` and ``"columns"`` keys.
+    filters:
+        ``{dim_name: [selected_values]}`` — only dims with non-empty selections applied.
+    """
+    if not wide_data:
+        return [], []
+    data = list(wide_data.get("data", []))
+    columns = list(wide_data.get("columns", []))
+    for dim_name, selected_vals in (filters or {}).items():
+        if selected_vals:
+            col_id = f"__{dim_name}__"
+            data = [row for row in data if row.get(col_id) in selected_vals]
+    return data, columns
 
 
 def compute_dropped_dims(
@@ -484,28 +563,48 @@ def register_callbacks(app: dash.Dash) -> None:
         return compute_dropped_dims(n_drops, n_reset, current_dropped, dash.ctx.triggered_id)
 
     @app.callback(
-        Output("data-output", "children"),
         Output("wide-data-store", "data"),
         Input("long-data-store", "data"),
         Input("value-mode-radio", "value"),
         Input("show-moe-checkbox", "value"),
         Input("dropped-dims-store", "data"),
     )
-    def render_table(store_data, value_mode, show_moe, dropped_dims):
-        data, columns, _ = compute_table(store_data, value_mode, show_moe, dropped_dims)
+    def compute_wide_cb(store_data, value_mode, show_moe, dropped_dims):
+        return compute_wide_data(store_data, value_mode, show_moe, dropped_dims)
+
+    @app.callback(
+        Output("dim-filter-controls", "children"),
+        Input("wide-data-store", "data"),
+    )
+    def render_dim_filter_controls_cb(wide_data):
+        return compute_dim_filter_controls(wide_data)
+
+    @app.callback(
+        Output("data-output", "children"),
+        Input("wide-data-store", "data"),
+        Input({"type": "dim-filter", "index": ALL}, "value"),
+        State({"type": "dim-filter", "index": ALL}, "id"),
+    )
+    def render_table(wide_data, filter_values, filter_ids):
+        filters = {
+            fid["index"]: fval
+            for fid, fval in zip(filter_ids or [], filter_values or [])
+            if fval
+        }
+        data, columns = apply_dim_filters(wide_data, filters)
         if not data:
-            return no_update, None
+            return no_update
         table = dash_table.DataTable(
             data=data,
             columns=columns,
             page_size=15,
             sort_action="native",
-            filter_action="native",
+            filter_action="none",
             style_table={"overflowX": "auto"},
             style_cell={"textAlign": "left", "padding": "3px 8px", "fontSize": "12px"},
             style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa", "fontSize": "12px"},
         )
-        return table, {"data": data, "columns": columns}
+        return table
 
     @app.callback(
         Output("chart-image", "src"),

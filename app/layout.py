@@ -268,6 +268,12 @@ def make_layout() -> dbc.Container:
                                 className="mb-2",
                             ),
 
+                            # Dim column filter dropdowns
+                            html.Div(
+                                id="dim-filter-controls",
+                                className="d-flex flex-wrap gap-2 align-items-center mb-2",
+                            ),
+
                             # Table
                             dcc.Loading(
                                 id="loading-output",
