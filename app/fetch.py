@@ -36,6 +36,12 @@ def fetch_long_for_vintage(
     api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
     long_df = api.long
 
+    # Ensure all expected value columns are present; some groups don't return
+    # percent_estimate / percent_moe from the Census API so they'd be absent.
+    for col in ("estimate", "moe", "percent_estimate", "percent_moe", "total"):
+        if col not in long_df.columns:
+            long_df[col] = pd.NA
+
     put_census_long(session, long_df, SURVEY, vintage, group_code, scope, sumlevel)
     return long_df
 
