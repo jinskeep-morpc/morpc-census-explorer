@@ -315,11 +315,16 @@ def render_chart_image(
 def render_chart_from_wide(
     wide_data: dict | None,
     chart_type: str = "bar",
+    x_field: str = "dimension",
+    color_field: str = "series",
 ) -> str:
     """Render a chart from the serialised wide-table data produced by build_wide_table.
 
-    The chart X axis uses the leaf (most specific) dimension label from each row,
-    and each data series corresponds to one geography/vintage column pair.
+    ``plot_df`` columns available for mapping:
+    - ``dimension``: leaf (most specific) dim label per table row
+    - ``series``: geography + vintage column label (e.g. "Franklin County (2023)")
+    - ``value``: numeric estimate/percent value
+
     Returns a base64-encoded PNG data URI, or '' on error/no data.
     """
     if not wide_data:
@@ -354,36 +359,39 @@ def render_chart_from_wide(
             ]
             return vals[-1] if vals else "Total"
 
-        df_wide["_label"] = df_wide.apply(_leaf_label, axis=1)
+        df_wide["dimension"] = df_wide.apply(_leaf_label, axis=1)
 
         frames = []
         for col in est_cols:
-            chunk = df_wide[["_label", col["id"]]].copy()
-            chunk = chunk.rename(columns={col["id"]: "_value"})
-            chunk["_series"] = col["name"]
+            chunk = df_wide[["dimension", col["id"]]].copy()
+            chunk = chunk.rename(columns={col["id"]: "value"})
+            chunk["series"] = col["name"]
             frames.append(chunk)
 
-        plot_df = pd.concat(frames, ignore_index=True).dropna(subset=["_value"])
+        plot_df = pd.concat(frames, ignore_index=True).dropna(subset=["value"])
         if plot_df.empty:
             return ""
 
+        x = x_field if x_field in plot_df.columns else "dimension"
+        c = color_field if color_field in plot_df.columns else "series"
+
         if chart_type == "bar":
             p = (
-                ggplot(plot_df, aes(x="_label", y="_value", fill="_series"))
+                ggplot(plot_df, aes(x=x, y="value", fill=c))
                 + geom_bar(stat="identity", position=position_dodge())
                 + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
                 + labs(x="", y="Value", fill="")
             )
         elif chart_type == "line":
             p = (
-                ggplot(plot_df, aes(x="_label", y="_value", color="_series", group="_series"))
+                ggplot(plot_df, aes(x=x, y="value", color=c, group=c))
                 + geom_line()
                 + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
                 + labs(x="", y="Value", color="")
             )
         else:
             p = (
-                ggplot(plot_df, aes(x="_label", y="_value", color="_series"))
+                ggplot(plot_df, aes(x=x, y="value", color=c))
                 + geom_point()
                 + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
                 + labs(x="", y="Value", color="")
@@ -503,9 +511,16 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("chart-image", "src"),
         Input("wide-data-store", "data"),
         Input("chart-type", "value"),
+        Input("chart-x-axis", "value"),
+        Input("chart-color-by", "value"),
     )
-    def update_chart(wide_data, chart_type):
-        return render_chart_from_wide(wide_data, chart_type or "bar")
+    def update_chart(wide_data, chart_type, x_field, color_field):
+        return render_chart_from_wide(
+            wide_data,
+            chart_type or "bar",
+            x_field or "dimension",
+            color_field or "series",
+        )
 
     @app.callback(
         Output("download-frictionless", "data"),

@@ -185,7 +185,41 @@ def make_layout() -> dbc.Container:
                                         html.Hr(className="my-2"),
 
                                         # Chart options
-                                        dbc.Label("Chart type", className="fw-semibold mb-1 small"),
+                                        dbc.Label("Chart", className="fw-semibold mb-1 small"),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("X axis", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-x-axis",
+                                                            options=[
+                                                                {"label": "Dimension", "value": "dimension"},
+                                                                {"label": "Series", "value": "series"},
+                                                            ],
+                                                            value="dimension",
+                                                            clearable=False,
+                                                        ),
+                                                    ]
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Color by", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-color-by",
+                                                            options=[
+                                                                {"label": "Series", "value": "series"},
+                                                                {"label": "Dimension", "value": "dimension"},
+                                                            ],
+                                                            value="series",
+                                                            clearable=False,
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            className="mb-1 g-1",
+                                        ),
+                                        dbc.Label("Chart type", className="small mb-0"),
                                         dcc.Dropdown(
                                             id="chart-type",
                                             options=[

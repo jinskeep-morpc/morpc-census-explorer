@@ -330,6 +330,14 @@ class TestRenderChartFromWide:
         result = render_chart_from_wide(_make_wide_data(), "point")
         assert isinstance(result, str)
 
+    def test_x_field_series(self):
+        result = render_chart_from_wide(_make_wide_data(), "bar", x_field="series", color_field="dimension")
+        assert isinstance(result, str)
+
+    def test_invalid_field_falls_back_gracefully(self):
+        result = render_chart_from_wide(_make_wide_data(), "bar", x_field="nonexistent", color_field="also_bad")
+        assert isinstance(result, str)
+
 
 # ---------------------------------------------------------------------------
 # render_chart_image
