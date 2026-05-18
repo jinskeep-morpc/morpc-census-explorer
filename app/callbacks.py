@@ -93,8 +93,10 @@ def compute_table(
 
     Returns (data, columns, value_type_card_style).
     """
-    if not store_data or not value_types:
+    if not store_data:
         return [], [], {"display": "none"}
+    if not value_types:
+        return [], [], {"display": "block"}
 
     long_df = deserialise_long(store_data)
     data, columns = build_wide_table(long_df, value_types)

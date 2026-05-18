@@ -261,6 +261,7 @@ class TestComputeTable:
         store = serialise_long(_make_long())
         data, cols, style = compute_table(store, [])
         assert data == [] and cols == []
+        assert style == {"display": "block"}  # card stays visible so user can re-check
 
     def test_returns_data_on_valid_input(self):
         long = pd.DataFrame([
