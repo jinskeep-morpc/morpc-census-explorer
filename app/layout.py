@@ -5,12 +5,6 @@ from dash import dcc, html
 
 from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
 
-_VALUE_TYPE_OPTIONS = [
-    {"label": "Estimate", "value": "estimate"},
-    {"label": "MOE", "value": "moe"},
-    {"label": "Percent Estimate", "value": "percent_estimate"},
-    {"label": "Percent MOE", "value": "percent_moe"},
-]
 
 _CHART_X_OPTIONS = [
     {"label": "Variable label", "value": "variable_label"},
@@ -210,15 +204,26 @@ def make_layout() -> dbc.Container:
                                     [
                                         dbc.Col(
                                             [
-                                                dbc.Label("Show value type(s):", className="fw-bold"),
-                                                dbc.Checklist(
-                                                    id="value-type-checklist",
-                                                    options=_VALUE_TYPE_OPTIONS,
-                                                    value=["estimate"],
+                                                dbc.Label("View:", className="fw-bold me-2"),
+                                                dbc.RadioItems(
+                                                    id="value-mode-radio",
+                                                    options=[
+                                                        {"label": "Estimate", "value": "estimate"},
+                                                        {"label": "Percent", "value": "percent"},
+                                                    ],
+                                                    value="estimate",
                                                     inline=True,
+                                                    className="d-inline-flex me-4",
+                                                ),
+                                                dbc.Checkbox(
+                                                    id="show-moe-checkbox",
+                                                    label="Display MOE",
+                                                    value=False,
+                                                    className="d-inline-block",
                                                 ),
                                             ],
                                             md=8,
+                                            className="d-flex align-items-center",
                                         ),
                                         dbc.Col(
                                             [

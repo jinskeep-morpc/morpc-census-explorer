@@ -36,12 +36,6 @@ def fetch_long_for_vintage(
     api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
     long_df = api.long
 
-    # Ensure all expected value columns are present; some groups don't return
-    # percent_estimate / percent_moe from the Census API so they'd be absent.
-    for col in ("estimate", "moe", "percent_estimate", "percent_moe", "total"):
-        if col not in long_df.columns:
-            long_df[col] = pd.NA
-
     put_census_long(session, long_df, SURVEY, vintage, group_code, scope, sumlevel)
     return long_df
 
@@ -78,7 +72,8 @@ def fetch_all_geos(
 
 def build_wide_table(
     long_df: pd.DataFrame,
-    value_types: list[str],
+    value_mode: str = "estimate",
+    show_moe: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Pivot a long DataFrame and flatten its MultiIndex for dash_table.DataTable.
 
@@ -86,18 +81,28 @@ def build_wide_table(
     ----------
     long_df:
         Concatenated output of ``CensusAPI.long`` across one or more vintages.
-    value_types:
-        Subset of ``ALL_VALUE_TYPES`` to include as columns.
+    value_mode:
+        ``"estimate"`` uses ``DimensionTable.wide()``;
+        ``"percent"`` uses ``DimensionTable.percent()``.
+    show_moe:
+        When True, include the MOE column alongside the primary value column.
 
     Returns
     -------
     (data, columns)
         Ready to pass directly to ``dash_table.DataTable(data=..., columns=...)``.
     """
-    wide = DimensionTable(long_df).wide()
+    dt = DimensionTable(long_df)
+    is_pct = value_mode == "percent"
 
-    # Filter to requested value types
-    vtype_mask = wide.columns.get_level_values("value_type").isin(value_types)
+    try:
+        wide = dt.percent() if is_pct else dt.wide()
+    except Exception as exc:
+        logger.warning("Table pivot failed (%s): %s", value_mode, exc)
+        return [], []
+
+    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
     if wide.empty:
@@ -110,25 +115,25 @@ def build_wide_table(
     else:
         dim_names = [index.name or "dim_0"]
 
-    # Build column definitions
-    multiple_vtypes = len(value_types) > 1
+    pct_prefix = "% " if is_pct else ""
+
     columns: list[dict] = [
         {"name": n.replace("_", " ").title(), "id": f"__dim_{i}__"}
         for i, n in enumerate(dim_names)
     ]
-    data_cols: list[tuple[tuple, str]] = []  # (MultiIndex tuple, flat col_id)
+    data_cols: list[tuple[tuple, str]] = []
 
     for tup in wide.columns:
         col_map = dict(zip(wide.columns.names, tup))
         name = col_map.get("name") or col_map.get("geoidfq", "")
         year = col_map.get("reference_period", "")
         vtype = col_map.get("value_type", "")
-        label = f"{name} ({year}) [{vtype}]" if multiple_vtypes else f"{name} ({year})"
+        vtype_suffix = " [MOE]" if (show_moe and vtype == "moe") else ""
+        label = f"{pct_prefix}{name} ({year}){vtype_suffix}"
         col_id = "__".join(str(v) for v in tup)
         columns.append({"name": label, "id": col_id})
         data_cols.append((tup, col_id))
 
-    # Build data records
     data: list[dict] = []
     for idx, row in wide.iterrows():
         if isinstance(idx, tuple):

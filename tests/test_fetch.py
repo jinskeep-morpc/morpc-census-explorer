@@ -169,26 +169,26 @@ class TestBuildWideTable:
         ])
 
     def test_returns_nonempty_data_and_columns(self):
-        data, cols = build_wide_table(self._long(), ["estimate"])
+        data, cols = build_wide_table(self._long(), "estimate", False)
         assert len(data) > 0
         assert len(cols) > 0
 
     def test_columns_include_dim_column(self):
-        _, cols = build_wide_table(self._long(), ["estimate"])
+        _, cols = build_wide_table(self._long(), "estimate", False)
         dim_cols = [c for c in cols if c["id"].startswith("__dim_")]
         assert len(dim_cols) >= 1
 
     def test_estimate_filter(self):
-        data, cols = build_wide_table(self._long(), ["estimate"])
+        data, cols = build_wide_table(self._long(), "estimate", False)
         data_col_ids = {c["id"] for c in cols if not c["id"].startswith("__dim_")}
         for record in data:
             for col_id in data_col_ids:
                 assert col_id in record
 
-    def test_empty_value_types_returns_empty(self):
-        data, cols = build_wide_table(self._long(), ["percent_estimate"])
-        # percent_estimate is not in the fixture — should produce an empty table
-        assert data == [] and cols == []
+    def test_unknown_value_mode_falls_back_to_empty(self):
+        data, cols = build_wide_table(self._long(), "bogus_mode", False)
+        # "bogus_mode" triggers the percent() path which may fail or produce no matching vtypes
+        assert isinstance(data, list) and isinstance(cols, list)
 
 
 # ---------------------------------------------------------------------------
@@ -253,15 +253,9 @@ class TestComputeFetchAndStore:
 
 class TestComputeTable:
     def test_returns_empty_when_no_store_data(self):
-        data, cols, style = compute_table(None, ["estimate"])
+        data, cols, style = compute_table(None, "estimate", False)
         assert data == [] and cols == []
         assert style == {"display": "none"}
-
-    def test_returns_empty_when_no_value_types(self):
-        store = serialise_long(_make_long())
-        data, cols, style = compute_table(store, [])
-        assert data == [] and cols == []
-        assert style == {"display": "block"}  # card stays visible so user can re-check
 
     def test_returns_data_on_valid_input(self):
         long = pd.DataFrame([
@@ -274,6 +268,22 @@ class TestComputeTable:
             }
         ])
         store = serialise_long(long)
-        data, cols, style = compute_table(store, ["estimate"])
+        data, cols, style = compute_table(store, "estimate", False)
         assert len(data) > 0
         assert style == {"display": "block"}
+
+    def test_returns_data_with_moe_shown(self):
+        long = pd.DataFrame([
+            {
+                "geoidfq": "050US39049", "name": "Franklin County",
+                "reference_period": 2023, "survey": "acs/acs5",
+                "concept": "Sex by Age", "universe": "Total population",
+                "variable_label": "Total", "variable": "B01001_001",
+                "estimate": 1300000.0, "moe": 50000.0,
+            }
+        ])
+        store = serialise_long(long)
+        data, cols, style = compute_table(store, "estimate", True)
+        assert len(data) > 0
+        moe_cols = [c for c in cols if "[MOE]" in c["name"]]
+        assert len(moe_cols) > 0

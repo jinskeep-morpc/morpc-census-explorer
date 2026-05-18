@@ -165,32 +165,32 @@ class TestExportFrictionless:
 class TestExportExcel:
     def test_returns_bytes(self):
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = export_excel(_make_long(), "B01001", ["estimate"])
+            result = export_excel(_make_long(), "B01001", "estimate", False)
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_result_is_valid_xlsx(self):
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = export_excel(_make_long(), "B01001", ["estimate"])
+            result = export_excel(_make_long(), "B01001", "estimate", False)
         assert result[:2] == b"PK"
 
-    def test_multiple_value_types(self):
+    def test_estimate_with_moe(self):
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = export_excel(_make_long(), "B01001", ["estimate", "moe"])
+            result = export_excel(_make_long(), "B01001", "estimate", True)
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_sheet_name_truncated_to_31_chars(self):
         long_code = "B" + "0" * 31  # 32 chars
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = export_excel(_make_long(), long_code, ["estimate"])
+            result = export_excel(_make_long(), long_code, "estimate", False)
         assert isinstance(result, bytes)
         assert len(result) > 0
 
     def test_raises_when_exclechart_unavailable(self):
         with patch("app.exports.ExcelChart", None):
             with pytest.raises(RuntimeError, match="ExcelChart is not available"):
-                export_excel(_make_long(), "B01001", ["estimate"])
+                export_excel(_make_long(), "B01001", "estimate", False)
 
 
 # ---------------------------------------------------------------------------
@@ -247,19 +247,19 @@ class TestComputeFrictionlessDownload:
 class TestComputeExcelDownload:
     def test_returns_no_update_when_no_store(self):
         from dash import no_update
-        result = compute_excel_download(None, "B01001", ["estimate"], [2023])
+        result = compute_excel_download(None, "B01001", [2023], "estimate", False)
         assert result is no_update
 
-    def test_returns_no_update_when_no_value_types(self):
+    def test_returns_no_update_when_no_group(self):
         from dash import no_update
         store = serialise_long(_make_long())
-        result = compute_excel_download(store, "B01001", [], [2023])
+        result = compute_excel_download(store, None, [2023], "estimate", False)
         assert result is no_update
 
     def test_returns_download_dict_on_success(self):
         store = serialise_long(_make_long())
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = compute_excel_download(store, "B01001", ["estimate"], [2023])
+            result = compute_excel_download(store, "B01001", [2023], "estimate", False)
         assert isinstance(result, dict)
         assert result["filename"].endswith(".xlsx")
         assert "base64" in result
@@ -267,6 +267,6 @@ class TestComputeExcelDownload:
     def test_filename_includes_group_and_vintage(self):
         store = serialise_long(_make_long())
         with patch("app.exports.ExcelChart", _FakeExcelChart):
-            result = compute_excel_download(store, "B01001", ["estimate"], [2022, 2023])
+            result = compute_excel_download(store, "B01001", [2022, 2023], "estimate", False)
         assert "b01001" in result["filename"]
         assert "2022" in result["filename"]

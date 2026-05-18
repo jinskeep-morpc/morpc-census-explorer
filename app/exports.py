@@ -59,15 +59,18 @@ def export_frictionless(
 def export_excel(
     long_df: pd.DataFrame,
     group_code: str,
-    value_types: list[str],
+    value_mode: str = "estimate",
+    show_moe: bool = False,
 ) -> bytes:
-    """Return .xlsx bytes of the wide DataFrame using ``morpc.plot.excel.ExcelChart``."""
+    """Return .xlsx bytes of the wide or percent DataFrame using ``morpc.plot.excel.ExcelChart``."""
     if ExcelChart is None:
         raise RuntimeError("morpc.plot.excel.ExcelChart is not available (morpc not importable)")
 
-    wide = DimensionTable(long_df).wide()
+    dt = DimensionTable(long_df)
+    wide = dt.percent() if value_mode == "percent" else dt.wide()
 
-    vtype_mask = wide.columns.get_level_values("value_type").isin(value_types)
+    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
     buf = io.BytesIO()

@@ -1,5 +1,33 @@
 # Dev Notes
 
+## 2026-05-18 — Value/percent/MOE UI redesign
+
+Branch: `main` (direct commit)
+
+### What changed
+
+- **`app/fetch.py`** — `build_wide_table` signature changed: `value_mode: str = "estimate"` and `show_moe: bool = False` replace the old `value_types: list[str]` parameter. When `value_mode == "percent"`, calls `DimensionTable.percent()`; otherwise `DimensionTable.wide()`. `show_moe` controls whether the MOE value_type is kept alongside the primary values.
+
+- **`app/exports.py`** — `export_excel` signature changed: `value_mode: str = "estimate"` and `show_moe: bool = False` replace `value_types`. Same dispatch logic as `build_wide_table`.
+
+- **`app/layout.py`** — Value-type checklist (`dbc.Checklist(id="value-type-checklist")`) replaced with two controls:
+  - `dbc.RadioItems(id="value-mode-radio")` — mutually exclusive Estimate / Percent choice, default "estimate"
+  - `dbc.Checkbox(id="show-moe-checkbox")` — toggles MOE column display, default False
+
+- **`app/callbacks.py`** — Cascading signature updates:
+  - `compute_table(store_data, value_mode, show_moe)` — passes both args to `build_wide_table`
+  - `compute_excel_download(store_data, group_code, vintages, value_mode, show_moe)` — passes both args to `export_excel`; guard changed from `not value_types` to `not store_data or not group_code`
+  - `render_table` callback: `Input("value-type-checklist", "value")` → `Input("value-mode-radio", "value")` + `Input("show-moe-checkbox", "value")`
+  - `download_excel` callback: same replacement in `State`
+
+- **Tests** — Updated to new signatures:
+  - `test_fetch.py`: `TestBuildWideTable` and `TestComputeTable` use positional `"estimate", False` / `"estimate", True`
+  - `test_exports.py`: `TestExportExcel` and `TestComputeExcelDownload` use new `(value_mode, show_moe)` args; `test_returns_no_update_when_no_value_types` replaced with `test_returns_no_update_when_no_group`
+
+### Design note
+
+The old checklist allowed zero selections (making the card vanish) and didn't cleanly separate "which pivot to use" from "show MOE alongside". RadioItems enforces exactly one mode and the checkbox orthogonally toggles MOE, matching how `DimensionTable.wide()` / `DimensionTable.percent()` actually work.
+
 ## 2026-05-18 — Multi-geography + chart tab (items 3 & 4)
 
 Branch: `main` (direct commit)

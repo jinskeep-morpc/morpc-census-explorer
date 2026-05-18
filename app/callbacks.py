@@ -87,7 +87,8 @@ def compute_fetch_and_store(
 
 def compute_table(
     store_data: dict | None,
-    value_types: list[str] | None,
+    value_mode: str | None,
+    show_moe: bool | None,
 ) -> tuple[list, list, dict]:
     """Build DataTable data/columns from stored long DataFrame.
 
@@ -95,11 +96,9 @@ def compute_table(
     """
     if not store_data:
         return [], [], {"display": "none"}
-    if not value_types:
-        return [], [], {"display": "block"}
 
     long_df = deserialise_long(store_data)
-    data, columns = build_wide_table(long_df, value_types)
+    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe))
     return data, columns, {"display": "block"}
 
 
@@ -190,15 +189,16 @@ def compute_frictionless_download(
 def compute_excel_download(
     store_data: dict | None,
     group_code: str | None,
-    value_types: list[str] | None,
     vintages: list[int] | None,
+    value_mode: str | None,
+    show_moe: bool | None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for Excel .xlsx, or no_update on error."""
-    if not store_data or not group_code or not value_types:
+    if not store_data or not group_code:
         return no_update
     try:
         long_df = deserialise_long(store_data)
-        xlsx_bytes = export_excel(long_df, group_code, value_types)
+        xlsx_bytes = export_excel(long_df, group_code, value_mode or "estimate", bool(show_moe))
         vintage_str = "_".join(str(v) for v in sorted(vintages or []))
         filename = f"census-acs5-{group_code.lower()}-{vintage_str}.xlsx"
         return dcc.send_bytes(xlsx_bytes, filename)
@@ -321,10 +321,11 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("data-output", "children"),
         Output("value-type-card", "style"),
         Input("long-data-store", "data"),
-        Input("value-type-checklist", "value"),
+        Input("value-mode-radio", "value"),
+        Input("show-moe-checkbox", "value"),
     )
-    def render_table(store_data, value_types):
-        data, columns, card_style = compute_table(store_data, value_types)
+    def render_table(store_data, value_mode, show_moe):
+        data, columns, card_style = compute_table(store_data, value_mode, show_moe)
         if not data:
             return no_update, card_style
         table = dash_table.DataTable(
@@ -371,8 +372,9 @@ def register_callbacks(app: dash.Dash) -> None:
         State("long-data-store", "data"),
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
-        State("value-type-checklist", "value"),
+        State("value-mode-radio", "value"),
+        State("show-moe-checkbox", "value"),
         prevent_initial_call=True,
     )
-    def download_excel(n_clicks, store_data, group_code, vintages, value_types):
-        return compute_excel_download(store_data, group_code, value_types, vintages)
+    def download_excel(n_clicks, store_data, group_code, vintages, value_mode, show_moe):
+        return compute_excel_download(store_data, group_code, vintages, value_mode, show_moe)
