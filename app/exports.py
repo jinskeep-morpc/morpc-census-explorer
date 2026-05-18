@@ -70,9 +70,7 @@ def export_excel(
     is_pct = value_mode == "percent"
     wide = dt.percent() if is_pct else dt.wide()
 
-    primary_vtype = "percent_estimate" if is_pct else "estimate"
-    moe_vtype = "percent_moe" if is_pct else "moe"
-    keep_vtypes = [primary_vtype, moe_vtype] if show_moe else [primary_vtype]
+    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
