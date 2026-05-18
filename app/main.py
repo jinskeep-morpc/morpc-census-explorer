@@ -1,3 +1,4 @@
+import logging
 import os
 
 import dash
@@ -8,6 +9,12 @@ from app.callbacks import register_callbacks
 from app.layout import make_layout
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 
 app = dash.Dash(
     __name__,
