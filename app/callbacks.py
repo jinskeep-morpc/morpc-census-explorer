@@ -98,13 +98,15 @@ def compute_frictionless_download(
     store_data: dict | None,
     group_code: str | None,
     vintages: list[int] | None,
+    scope: str | None,
+    sumlevel: str | None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for frictionless zip, or None on error."""
-    if not store_data or not group_code or not vintages:
+    if not store_data or not group_code or not vintages or not scope or not sumlevel:
         return no_update
     try:
         long_df = deserialise_long(store_data)
-        zip_bytes = export_frictionless(long_df, group_code, vintages)
+        zip_bytes = export_frictionless(long_df, group_code, vintages, scope, sumlevel)
         vintage_str = "_".join(str(v) for v in sorted(vintages))
         filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
         return dcc.send_bytes(zip_bytes, filename)
@@ -201,10 +203,12 @@ def register_callbacks(app: dash.Dash) -> None:
         State("long-data-store", "data"),
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
+        State("scope-dropdown", "value"),
+        State("sumlevel-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_frictionless(n_clicks, store_data, group_code, vintages):
-        return compute_frictionless_download(store_data, group_code, vintages)
+    def download_frictionless(n_clicks, store_data, group_code, vintages, scope, sumlevel):
+        return compute_frictionless_download(store_data, group_code, vintages, scope, sumlevel)
 
     @app.callback(
         Output("download-excel", "data"),

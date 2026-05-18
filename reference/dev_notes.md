@@ -1,5 +1,26 @@
 # Dev Notes
 
+## 2026-05-18 — Export improvements (items 1 & 2)
+
+Branch: `main` (direct commit)
+
+### What changed
+
+- **`app/exports.py`** — Two improvements:
+  - `export_frictionless` now uses `CensusAPI.save()` for richer metadata (proper frictionless schema introspection, universe, concept, variable descriptions). Signature extended: `scope` and `sumlevel` added as required args. The function calls `CensusAPI.save()` for the earliest selected vintage to generate `.schema.yaml` and `.resource.yaml`, then overwrites the CSV with the (possibly multi-vintage) `long_df`. The `_frictionless_type` helper is removed (no longer needed).
+  - `export_excel` now uses `morpc.plot.excel.ExcelChart` exclusively — pandas `ExcelWriter` fallback removed. Raises `RuntimeError` if morpc is not importable (PyPI release fails at import-time due to Census API call; vendor wheel in container is fine).
+
+- **`app/callbacks.py`**:
+  - `compute_frictionless_download` gains `scope` and `sumlevel` parameters; passes them to `export_frictionless`.
+  - `download_frictionless` callback adds `State("scope-dropdown", "value")` and `State("sumlevel-dropdown", "value")`.
+
+- **`tests/test_exports.py`** — Full rewrite of export tests:
+  - `_FakeExcelChart`: xlsxwriter-backed stand-in for `morpc.plot.excel.ExcelChart`, used in local test env where PyPI morpc fails to import.
+  - `_mock_census_api`: creates `MagicMock` with `.save()` side-effect that writes placeholder files so `export_frictionless` can be tested without Census API calls.
+  - Removed `test_falls_back_to_pandas_when_exclechart_fails` (fallback no longer exists); added `test_raises_when_exclechart_unavailable`.
+  - All frictionless tests patched through `_export_frictionless_mocked` helper; all Excel tests patch `app.exports.ExcelChart` with `_FakeExcelChart`.
+  - `TestComputeFrictionlessDownload` updated: new `scope`/`sumlevel` args; CensusAPI patched in integration tests.
+
 ## 2026-05-17 — Phase 6: Polish
 
 Branch: `phase-6-polish` → PR #10
