@@ -7,6 +7,7 @@ import pytest
 
 from app.callbacks import compute_fetch_and_store, compute_table
 from app.fetch import (
+    _choose_drop_method,
     build_wide_table,
     deserialise_long,
     fetch_all_geos,
@@ -207,6 +208,68 @@ class TestGetAvailableDims:
 
 
 # ---------------------------------------------------------------------------
+# _choose_drop_method — mirrors real B01001 dim structure with "Total:" root
+# ---------------------------------------------------------------------------
+
+def _make_b01001_long():
+    """Minimal B01001-style long DF matching real Census label structure.
+
+    After _parse_dims:
+      dim_0 = "Total:" (universal root, same for every row)
+      dim_1 = Sex: "Male:", "Female:", "" (grand-total row)
+      dim_2 = Age: "Under 5 years", ..., "" (sex-subtotal rows + grand total)
+    """
+    def _row(label, var, est):
+        return {
+            "geoidfq": "050US39049", "name": "Franklin County",
+            "reference_period": 2023, "survey": "acs/acs5",
+            "concept": "Sex by Age", "universe": "Total population",
+            "variable_label": label, "variable": var,
+            "estimate": est, "moe": est * 0.05,
+        }
+    return pd.DataFrame([
+        _row("Total:",                        "B01001_001", 1_300_000.0),
+        _row("Total:!!Male:",                 "B01001_002",   640_000.0),
+        _row("Total:!!Female:",               "B01001_026",   660_000.0),
+        _row("Total:!!Male:!!Under 5 years",  "B01001_003",    40_000.0),
+        _row("Total:!!Female:!!Under 5 years","B01001_027",    38_000.0),
+    ])
+
+
+from morpc_census.api import DimensionTable as _DT
+
+
+class TestChooseDropMethod:
+    def test_root_dim_uses_aggregate(self):
+        # dim_0 = "Total:" always → no "" rows → aggregate
+        dt = _DT(_make_b01001_long())
+        assert _choose_drop_method(dt, "dim_0") == "aggregate"
+
+    def test_sex_dim_uses_aggregate(self):
+        # dim_1 (Sex): only "" row is the grand total (all other dims also "")
+        dt = _DT(_make_b01001_long())
+        assert _choose_drop_method(dt, "dim_1") == "aggregate"
+
+    def test_age_dim_uses_summarize(self):
+        # dim_2 (Age): "" rows are the sex-subtotals (Male:, Female:) — partial subtotals exist
+        dt = _DT(_make_b01001_long())
+        assert _choose_drop_method(dt, "dim_2") == "summarize"
+
+    def test_nonexistent_dim_uses_aggregate(self):
+        dt = _DT(_make_b01001_long())
+        assert _choose_drop_method(dt, "dim_99") == "aggregate"
+
+    def test_simple_fixture_leaf_dim_uses_summarize(self):
+        # _make_multi_dim_long has no "Total:" root → dim_1 (age) has partial subtotals
+        dt = _DT(_make_multi_dim_long())
+        assert _choose_drop_method(dt, "dim_1") == "summarize"
+
+    def test_simple_fixture_root_dim_uses_aggregate(self):
+        dt = _DT(_make_multi_dim_long())
+        assert _choose_drop_method(dt, "dim_0") == "aggregate"
+
+
+# ---------------------------------------------------------------------------
 # build_wide_table (smoke tests — uses a real DimensionTable pivot)
 # ---------------------------------------------------------------------------
 
@@ -275,6 +338,15 @@ class TestBuildWideTable:
         df = _make_multi_dim_long()
         data, cols = build_wide_table(df, "estimate", False, ["dim_0"])
         assert len(data) > 0 and len(cols) > 0
+
+    def test_drop_sex_in_b01001_structure_returns_age_rows(self):
+        # Real B01001-style: dropping Sex (dim_1) should aggregate Male+Female per age,
+        # NOT return only the grand total row.
+        df = _make_b01001_long()
+        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
+        # Should have an "Under 5 years" row (not just grand total)
+        dim_vals = [row.get("__dim_0__") or row.get("__dim_1__") or "" for row in data]
+        assert len(data) > 1, "Expected age rows, got only grand total"
 
 
 # ---------------------------------------------------------------------------

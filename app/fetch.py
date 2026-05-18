@@ -86,13 +86,9 @@ def get_available_dims(long_df: pd.DataFrame) -> list[str]:
 def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
     """Return dim column names that can be dropped, requiring at least 2 dims to remain useful.
 
-    Both ``summarize`` and ``aggregate`` are supported — the method is chosen
-    automatically at drop time by ``build_wide_table``:
-
-    * ``summarize``: used when the dim has subtotal rows (``dim == ''``), meaning the
-      pre-aggregated totals for the other dimensions already exist in the data.
-    * ``aggregate``: used when no subtotal rows exist for that dim, so estimates must
-      be summed across it (e.g. summing Male+Female age buckets to get age-only totals).
+    The drop method (``summarize`` vs ``aggregate``) is chosen automatically by
+    ``_choose_drop_method`` at drop time based on whether partial subtotal rows
+    exist for the dim in the sibling dimensions.
 
     Returns an empty list when fewer than 2 dims are present, since dropping the
     only remaining dim produces an uninterpretable result.
@@ -105,6 +101,33 @@ def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
         return cols if len(cols) >= 2 else []
     except Exception:
         return []
+
+
+def _choose_drop_method(dt: "DimensionTable", dim: str) -> str:
+    """Return 'summarize' or 'aggregate' for DimensionTable.drop(dim).
+
+    Chooses 'summarize' when the data already contains partial-subtotal rows for
+    *dim* (rows where dim=="") that also carry specific values for some sibling
+    dimension — meaning pre-aggregated results exist and we just need to filter.
+
+    Chooses 'aggregate' when no such partial subtotals exist (either the dim has
+    no empty rows, or the only empty rows are the grand-total row where every
+    other dim is also empty, or every other dim is a "universal root" with only
+    one distinct value like "Total:").
+    """
+    if dim not in dt.dims.columns:
+        return "aggregate"
+    other_dims = [d for d in dt.dims.columns if d != dim]
+    subtotal_rows = dt.dims.loc[dt.dims[dim] == ""]
+    if subtotal_rows.empty or not other_dims:
+        return "aggregate"
+    for other in other_dims:
+        non_empty_in_subtotals = subtotal_rows[other][subtotal_rows[other] != ""]
+        globally_non_empty = dt.dims[other][dt.dims[other] != ""]
+        # A "real" sibling dim has 2+ distinct values — rules out "Total:" roots
+        if len(non_empty_in_subtotals) > 0 and globally_non_empty.nunique() >= 2:
+            return "summarize"
+    return "aggregate"
 
 
 def build_wide_table(
@@ -135,8 +158,8 @@ def build_wide_table(
     dt = DimensionTable(long_df)
     if dropped_dims:
         for dim in dropped_dims:
+            method = _choose_drop_method(dt, dim)
             try:
-                method = "summarize" if (dim in dt.dims.columns and (dt.dims[dim] == "").any()) else "aggregate"
                 dt = dt.drop(dim, method=method)
             except (IndexError, ValueError, KeyError) as exc:
                 logger.warning("DimensionTable.drop(%s, method=%s) failed: %s — ignoring", dim, method, exc)
