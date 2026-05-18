@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# Install local morpc before PyPI resolution so the fixed version is used
+COPY vendor/ /vendor/
+RUN pip install --no-cache-dir /vendor/morpc-*.whl
+
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 

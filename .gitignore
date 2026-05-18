@@ -15,6 +15,9 @@ env/
 # Exports
 exports/
 
+# Local dependency wheels (generated from morpc-py local install)
+vendor/
+
 # Alembic
 alembic/versions/*.pyc
 
