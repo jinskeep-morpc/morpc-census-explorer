@@ -101,7 +101,9 @@ def build_wide_table(
         logger.warning("Table pivot failed (%s): %s", value_mode, exc)
         return [], []
 
-    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    primary_vtype = "percent_estimate" if is_pct else "estimate"
+    moe_vtype = "percent_moe" if is_pct else "moe"
+    keep_vtypes = [primary_vtype, moe_vtype] if show_moe else [primary_vtype]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
@@ -128,7 +130,7 @@ def build_wide_table(
         name = col_map.get("name") or col_map.get("geoidfq", "")
         year = col_map.get("reference_period", "")
         vtype = col_map.get("value_type", "")
-        vtype_suffix = " [MOE]" if (show_moe and vtype == "moe") else ""
+        vtype_suffix = " [MOE]" if (show_moe and vtype == moe_vtype) else ""
         label = f"{pct_prefix}{name} ({year}){vtype_suffix}"
         col_id = "__".join(str(v) for v in tup)
         columns.append({"name": label, "id": col_id})

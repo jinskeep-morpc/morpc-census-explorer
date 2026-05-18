@@ -67,9 +67,12 @@ def export_excel(
         raise RuntimeError("morpc.plot.excel.ExcelChart is not available (morpc not importable)")
 
     dt = DimensionTable(long_df)
-    wide = dt.percent() if value_mode == "percent" else dt.wide()
+    is_pct = value_mode == "percent"
+    wide = dt.percent() if is_pct else dt.wide()
 
-    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    primary_vtype = "percent_estimate" if is_pct else "estimate"
+    moe_vtype = "percent_moe" if is_pct else "moe"
+    keep_vtypes = [primary_vtype, moe_vtype] if show_moe else [primary_vtype]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
