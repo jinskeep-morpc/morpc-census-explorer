@@ -52,9 +52,9 @@ def sumlevel_options() -> list[dict]:
     try:
         from morpc import SUMLEVEL_DESCRIPTIONS
         return [
-            {"label": f"{desc['name']} ({code})", "value": code}
+            {"label": f"{desc.get('singular', code)} ({code})", "value": code}
             for code, desc in SUMLEVEL_DESCRIPTIONS.items()
-            if desc.get("name")
+            if desc.get("singular")
         ]
     except Exception:
         logger.warning("Could not load sumlevel options from morpc.")
