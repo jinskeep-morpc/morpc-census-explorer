@@ -36,6 +36,7 @@ def make_layout() -> dbc.Container:
             # Client-side stores
             dcc.Store(id="long-data-store"),
             dcc.Store(id="geo-list-store", data=[]),
+            dcc.Store(id="dropped-dims-store", data=[]),
             # Download triggers
             dcc.Download(id="download-frictionless"),
             dcc.Download(id="download-excel"),
@@ -268,12 +269,32 @@ def make_layout() -> dbc.Container:
                     dbc.Tabs(
                         [
                             dbc.Tab(
-                                dcc.Loading(
-                                    id="loading-output",
-                                    type="default",
-                                    color="var(--morpc-green)",
-                                    children=html.Div(id="data-output"),
-                                ),
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                id="dim-drop-controls",
+                                                className="d-inline-flex flex-wrap align-items-center gap-2",
+                                            ),
+                                            dbc.Button(
+                                                "Reset Dimensions",
+                                                id="reset-dims-btn",
+                                                size="sm",
+                                                color="secondary",
+                                                outline=True,
+                                                n_clicks=0,
+                                                style={"display": "none"},
+                                            ),
+                                        ],
+                                        className="mt-2 mb-2",
+                                    ),
+                                    dcc.Loading(
+                                        id="loading-output",
+                                        type="default",
+                                        color="var(--morpc-green)",
+                                        children=html.Div(id="data-output"),
+                                    ),
+                                ],
                                 label="Table",
                                 tab_id="tab-table",
                             ),

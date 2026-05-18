@@ -19,6 +19,7 @@ from app.fetch import (
     build_wide_table,
     deserialise_long,
     fetch_all_geos,
+    get_available_dims,
     serialise_long,
 )
 from app.selectors import group_options_for_topic
@@ -89,6 +90,7 @@ def compute_table(
     store_data: dict | None,
     value_mode: str | None,
     show_moe: bool | None,
+    dropped_dims: list[str] | None = None,
 ) -> tuple[list, list, dict]:
     """Build DataTable data/columns from stored long DataFrame.
 
@@ -98,8 +100,56 @@ def compute_table(
         return [], [], {"display": "none"}
 
     long_df = deserialise_long(store_data)
-    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe))
+    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
     return data, columns, {"display": "block"}
+
+
+def compute_dim_controls(
+    store_data: dict | None,
+    dropped_dims: list[str] | None,
+) -> tuple[list, dict]:
+    """Return (drop_buttons, reset_btn_style) for the dimension controls bar."""
+    if not store_data:
+        return [], {"display": "none"}
+    long_df = deserialise_long(store_data)
+    all_dims = get_available_dims(long_df)
+    if len(all_dims) <= 1:
+        return [], {"display": "none"}
+    dropped = set(dropped_dims or [])
+    buttons = [
+        dbc.Button(
+            f"Drop {dim.replace('_', ' ').title()}",
+            id={"type": "drop-dim-btn", "index": dim},
+            size="sm",
+            color="warning",
+            outline=True,
+            n_clicks=0,
+            className="me-2",
+        )
+        for dim in all_dims
+        if dim not in dropped
+    ]
+    reset_style = {"display": "inline-block"} if dropped else {"display": "none"}
+    return buttons, reset_style
+
+
+def compute_dropped_dims(
+    n_drops: list[int | None],
+    n_reset: int | None,
+    current_dropped: list[str] | None,
+    trigger_id,
+) -> list[str]:
+    """Return updated dropped-dims list after a drop or reset action."""
+    current = list(current_dropped or [])
+    if trigger_id == "long-data-store":
+        return []
+    if trigger_id == "reset-dims-btn":
+        return []
+    if isinstance(trigger_id, dict) and trigger_id.get("type") == "drop-dim-btn":
+        dim = trigger_id["index"]
+        if dim not in current:
+            return current + [dim]
+    return current
 
 
 def compute_geo_list(
@@ -318,14 +368,35 @@ def register_callbacks(app: dash.Dash) -> None:
         return compute_fetch_and_store(n_clicks, group_code, vintages, geo_list)
 
     @app.callback(
+        Output("dim-drop-controls", "children"),
+        Output("reset-dims-btn", "style"),
+        Input("long-data-store", "data"),
+        Input("dropped-dims-store", "data"),
+    )
+    def render_dim_controls(store_data, dropped_dims):
+        return compute_dim_controls(store_data, dropped_dims)
+
+    @app.callback(
+        Output("dropped-dims-store", "data"),
+        Input("long-data-store", "data"),
+        Input("reset-dims-btn", "n_clicks"),
+        Input({"type": "drop-dim-btn", "index": ALL}, "n_clicks"),
+        State("dropped-dims-store", "data"),
+        prevent_initial_call=True,
+    )
+    def update_dropped_dims(store_data, n_reset, n_drops, current_dropped):
+        return compute_dropped_dims(n_drops, n_reset, current_dropped, dash.ctx.triggered_id)
+
+    @app.callback(
         Output("data-output", "children"),
         Output("value-type-card", "style"),
         Input("long-data-store", "data"),
         Input("value-mode-radio", "value"),
         Input("show-moe-checkbox", "value"),
+        Input("dropped-dims-store", "data"),
     )
-    def render_table(store_data, value_mode, show_moe):
-        data, columns, card_style = compute_table(store_data, value_mode, show_moe)
+    def render_table(store_data, value_mode, show_moe, dropped_dims):
+        data, columns, card_style = compute_table(store_data, value_mode, show_moe, dropped_dims)
         if not data:
             return no_update, card_style
         table = dash_table.DataTable(

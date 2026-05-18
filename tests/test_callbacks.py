@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from app.callbacks import (
     _friendly_error,
+    compute_dim_controls,
+    compute_dropped_dims,
     compute_fetch_and_store,
     compute_fetch_button_disabled,
     compute_geo_chips,
@@ -13,6 +15,7 @@ from app.callbacks import (
     compute_group_options,
     render_chart_image,
 )
+from app.fetch import serialise_long
 
 _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
@@ -202,6 +205,95 @@ class TestComputeFetchAndStore:
             store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO)
         assert err_open is True
         assert "No data" in err_msg
+
+
+# ---------------------------------------------------------------------------
+# compute_dim_controls
+# ---------------------------------------------------------------------------
+
+def _make_single_dim_store():
+    df = _make_long()  # variable_label has no !! → single dim
+    return serialise_long(df)
+
+
+def _make_multi_dim_store():
+    df = pd.DataFrame([
+        {
+            "geoidfq": "050US39049", "name": "Franklin County",
+            "reference_period": 2023, "survey": "acs/acs5",
+            "concept": "Sex by Age", "universe": "Total population",
+            "variable_label": "Total:!!Male:", "variable": "B01001_002",
+            "estimate": 640000.0, "moe": 20000.0,
+        },
+        {
+            "geoidfq": "050US39049", "name": "Franklin County",
+            "reference_period": 2023, "survey": "acs/acs5",
+            "concept": "Sex by Age", "universe": "Total population",
+            "variable_label": "Total:!!Female:", "variable": "B01001_026",
+            "estimate": 680000.0, "moe": 22000.0,
+        },
+    ])
+    return serialise_long(df)
+
+
+class TestComputeDimControls:
+    def test_no_data_returns_empty_and_hidden(self):
+        buttons, style = compute_dim_controls(None, [])
+        assert buttons == []
+        assert style == {"display": "none"}
+
+    def test_single_dim_returns_no_buttons(self):
+        buttons, style = compute_dim_controls(_make_single_dim_store(), [])
+        assert buttons == []
+        assert style == {"display": "none"}
+
+    def test_multi_dim_returns_drop_buttons(self):
+        buttons, style = compute_dim_controls(_make_multi_dim_store(), [])
+        assert len(buttons) == 2
+
+    def test_dropped_dim_not_shown_in_buttons(self):
+        buttons, _ = compute_dim_controls(_make_multi_dim_store(), ["dim_0"])
+        indices = [b.id["index"] for b in buttons]
+        assert "dim_0" not in indices
+
+    def test_reset_hidden_when_nothing_dropped(self):
+        _, style = compute_dim_controls(_make_multi_dim_store(), [])
+        assert style == {"display": "none"}
+
+    def test_reset_visible_when_dim_dropped(self):
+        _, style = compute_dim_controls(_make_multi_dim_store(), ["dim_0"])
+        assert style == {"display": "inline-block"}
+
+
+# ---------------------------------------------------------------------------
+# compute_dropped_dims
+# ---------------------------------------------------------------------------
+
+class TestComputeDroppedDims:
+    def test_drop_button_adds_dim(self):
+        result = compute_dropped_dims([], None, [], {"type": "drop-dim-btn", "index": "dim_0"})
+        assert result == ["dim_0"]
+
+    def test_duplicate_drop_ignored(self):
+        result = compute_dropped_dims([], None, ["dim_0"], {"type": "drop-dim-btn", "index": "dim_0"})
+        assert result == ["dim_0"]
+
+    def test_reset_clears_all(self):
+        result = compute_dropped_dims([], 1, ["dim_0", "dim_1"], "reset-dims-btn")
+        assert result == []
+
+    def test_new_data_clears_all(self):
+        result = compute_dropped_dims([], None, ["dim_0"], "long-data-store")
+        assert result == []
+
+    def test_unknown_trigger_returns_unchanged(self):
+        result = compute_dropped_dims([], None, ["dim_0"], "some-other-component")
+        assert result == ["dim_0"]
+
+    def test_multiple_sequential_drops(self):
+        current = compute_dropped_dims([], None, [], {"type": "drop-dim-btn", "index": "dim_0"})
+        current = compute_dropped_dims([], None, current, {"type": "drop-dim-btn", "index": "dim_1"})
+        assert "dim_0" in current and "dim_1" in current
 
 
 # ---------------------------------------------------------------------------

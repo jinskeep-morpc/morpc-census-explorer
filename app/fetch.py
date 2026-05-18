@@ -70,10 +70,24 @@ def fetch_all_geos(
     return pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
 
 
+def get_available_dims(long_df: pd.DataFrame) -> list[str]:
+    """Return the dim column names DimensionTable would produce from this long DataFrame.
+
+    Derived from the maximum number of ``!!``-delimited parts in ``variable_label``.
+    """
+    if long_df.empty or "variable_label" not in long_df.columns:
+        return []
+    max_count = long_df["variable_label"].str.count("!!").max()
+    if pd.isna(max_count):
+        return []
+    return [f"dim_{i}" for i in range(int(max_count) + 1)]
+
+
 def build_wide_table(
     long_df: pd.DataFrame,
     value_mode: str = "estimate",
     show_moe: bool = False,
+    dropped_dims: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Pivot a long DataFrame and flatten its MultiIndex for dash_table.DataTable.
 
@@ -86,6 +100,8 @@ def build_wide_table(
         ``"percent"`` uses ``DimensionTable.percent()``.
     show_moe:
         When True, include the MOE column alongside the primary value column.
+    dropped_dims:
+        List of dim column names (e.g. ``["dim_0"]``) to drop before pivoting.
 
     Returns
     -------
@@ -93,6 +109,11 @@ def build_wide_table(
         Ready to pass directly to ``dash_table.DataTable(data=..., columns=...)``.
     """
     dt = DimensionTable(long_df)
+    if dropped_dims:
+        try:
+            dt = dt.drop(dropped_dims)
+        except (IndexError, ValueError, KeyError) as exc:
+            logger.warning("DimensionTable.drop(%s) failed: %s — ignoring", dropped_dims, exc)
     is_pct = value_mode == "percent"
 
     try:
