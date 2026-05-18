@@ -13,9 +13,10 @@ from app.callbacks import (
     compute_geo_chips,
     compute_geo_list,
     compute_group_options,
+    render_chart_from_wide,
     render_chart_image,
 )
-from app.fetch import serialise_long
+from app.fetch import build_wide_table, serialise_long
 
 _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
@@ -294,6 +295,40 @@ class TestComputeDroppedDims:
         current = compute_dropped_dims([], None, [], {"type": "drop-dim-btn", "index": "dim_0"})
         current = compute_dropped_dims([], None, current, {"type": "drop-dim-btn", "index": "dim_1"})
         assert "dim_0" in current and "dim_1" in current
+
+
+# ---------------------------------------------------------------------------
+# render_chart_from_wide
+# ---------------------------------------------------------------------------
+
+def _make_wide_data():
+    df = _make_long()
+    data, cols = build_wide_table(df, "estimate", False)
+    return {"data": data, "columns": cols}
+
+
+class TestRenderChartFromWide:
+    def test_returns_string(self):
+        result = render_chart_from_wide(_make_wide_data(), "bar")
+        assert isinstance(result, str)
+
+    def test_returns_data_uri_or_empty(self):
+        result = render_chart_from_wide(_make_wide_data(), "bar")
+        assert result == "" or result.startswith("data:image/png;base64,")
+
+    def test_none_returns_empty(self):
+        assert render_chart_from_wide(None, "bar") == ""
+
+    def test_empty_dict_returns_empty(self):
+        assert render_chart_from_wide({}, "bar") == ""
+
+    def test_line_type(self):
+        result = render_chart_from_wide(_make_wide_data(), "line")
+        assert isinstance(result, str)
+
+    def test_point_type(self):
+        result = render_chart_from_wide(_make_wide_data(), "point")
+        assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------

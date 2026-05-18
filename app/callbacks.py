@@ -6,6 +6,8 @@ import base64
 import io
 import logging
 
+import pandas as pd
+
 import dash
 from dash import ALL, Input, Output, State, dash_table, dcc, html, no_update
 
@@ -310,6 +312,92 @@ def render_chart_image(
         return ""
 
 
+def render_chart_from_wide(
+    wide_data: dict | None,
+    chart_type: str = "bar",
+) -> str:
+    """Render a chart from the serialised wide-table data produced by build_wide_table.
+
+    The chart X axis uses the leaf (most specific) dimension label from each row,
+    and each data series corresponds to one geography/vintage column pair.
+    Returns a base64-encoded PNG data URI, or '' on error/no data.
+    """
+    if not wide_data:
+        return ""
+    data = wide_data.get("data", [])
+    columns = wide_data.get("columns", [])
+    if not data or not columns:
+        return ""
+
+    try:
+        from plotnine import (
+            aes, element_text, geom_bar, geom_line, geom_point,
+            ggplot, labs, position_dodge, theme,
+        )
+    except ImportError:
+        logger.warning("plotnine not available; chart rendering disabled.")
+        return ""
+
+    try:
+        df_wide = pd.DataFrame(data)
+        dim_col_ids = [c["id"] for c in columns if c["id"].startswith("__dim_")]
+        est_cols = [c for c in columns if not c["id"].startswith("__dim_") and "[MOE]" not in c["name"]]
+
+        if not est_cols:
+            return ""
+
+        def _leaf_label(row: pd.Series) -> str:
+            vals = [
+                str(row[cid])
+                for cid in dim_col_ids
+                if row.get(cid) not in (None, "", "nan", "None") and pd.notna(row.get(cid))
+            ]
+            return vals[-1] if vals else "Total"
+
+        df_wide["_label"] = df_wide.apply(_leaf_label, axis=1)
+
+        frames = []
+        for col in est_cols:
+            chunk = df_wide[["_label", col["id"]]].copy()
+            chunk = chunk.rename(columns={col["id"]: "_value"})
+            chunk["_series"] = col["name"]
+            frames.append(chunk)
+
+        plot_df = pd.concat(frames, ignore_index=True).dropna(subset=["_value"])
+        if plot_df.empty:
+            return ""
+
+        if chart_type == "bar":
+            p = (
+                ggplot(plot_df, aes(x="_label", y="_value", fill="_series"))
+                + geom_bar(stat="identity", position=position_dodge())
+                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
+                + labs(x="", y="Value", fill="")
+            )
+        elif chart_type == "line":
+            p = (
+                ggplot(plot_df, aes(x="_label", y="_value", color="_series", group="_series"))
+                + geom_line()
+                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
+                + labs(x="", y="Value", color="")
+            )
+        else:
+            p = (
+                ggplot(plot_df, aes(x="_label", y="_value", color="_series"))
+                + geom_point()
+                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
+                + labs(x="", y="Value", color="")
+            )
+
+        buf = io.BytesIO()
+        p.save(buf, format="png", dpi=120, width=9, height=4, verbose=False)
+        buf.seek(0)
+        return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
+    except Exception as exc:
+        logger.error("Chart render failed: %s", exc)
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # Dash registration
 # ---------------------------------------------------------------------------
@@ -389,41 +477,35 @@ def register_callbacks(app: dash.Dash) -> None:
 
     @app.callback(
         Output("data-output", "children"),
-        Output("value-type-card", "style"),
+        Output("wide-data-store", "data"),
         Input("long-data-store", "data"),
         Input("value-mode-radio", "value"),
         Input("show-moe-checkbox", "value"),
         Input("dropped-dims-store", "data"),
     )
     def render_table(store_data, value_mode, show_moe, dropped_dims):
-        data, columns, card_style = compute_table(store_data, value_mode, show_moe, dropped_dims)
+        data, columns, _ = compute_table(store_data, value_mode, show_moe, dropped_dims)
         if not data:
-            return no_update, card_style
+            return no_update, None
         table = dash_table.DataTable(
             data=data,
             columns=columns,
-            page_size=25,
+            page_size=15,
             sort_action="native",
             filter_action="native",
             style_table={"overflowX": "auto"},
-            style_cell={"textAlign": "left", "padding": "6px 12px", "fontSize": "13px"},
-            style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa"},
+            style_cell={"textAlign": "left", "padding": "3px 8px", "fontSize": "12px"},
+            style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa", "fontSize": "12px"},
         )
-        return table, card_style
+        return table, {"data": data, "columns": columns}
 
     @app.callback(
         Output("chart-image", "src"),
-        Input("long-data-store", "data"),
-        Input("chart-x-axis", "value"),
-        Input("chart-y-axis", "value"),
-        Input("chart-color-by", "value"),
+        Input("wide-data-store", "data"),
         Input("chart-type", "value"),
     )
-    def update_chart(store_data, x_col, y_col, color_col, chart_type):
-        if not store_data or not x_col or not y_col or not color_col or not chart_type:
-            return ""
-        long_df = deserialise_long(store_data)
-        return render_chart_image(long_df, x_col, y_col, color_col, chart_type)
+    def update_chart(wide_data, chart_type):
+        return render_chart_from_wide(wide_data, chart_type or "bar")
 
     @app.callback(
         Output("download-frictionless", "data"),
