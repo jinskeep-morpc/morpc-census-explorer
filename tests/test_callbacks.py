@@ -259,12 +259,12 @@ class TestComputeDimControls:
         assert buttons == []
         assert style == {"display": "none"}
 
-    def test_multi_dim_returns_drop_buttons_for_leaf_dim_only(self):
-        # Only dim_1 is droppable (has subtotal rows); dim_0 is not
+    def test_multi_dim_returns_drop_buttons_for_all_dims(self):
+        # Both dim_0 and dim_1 are droppable when 2+ dims exist
         buttons, style = compute_dim_controls(_make_multi_dim_store(), [])
         indices = [b.id["index"] for b in buttons]
+        assert "dim_0" in indices
         assert "dim_1" in indices
-        assert "dim_0" not in indices
 
     def test_dropped_dim_not_shown_in_buttons(self):
         buttons, _ = compute_dim_controls(_make_multi_dim_store(), ["dim_1"])

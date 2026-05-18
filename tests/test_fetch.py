@@ -176,14 +176,13 @@ def _make_multi_dim_long():
 
 class TestGetDroppableDims:
     def test_single_dim_returns_empty(self):
-        # Single-level labels → dim_0 is always populated → nothing droppable
         assert get_droppable_dims(_make_long()) == []
 
-    def test_multi_dim_returns_leaf_dim(self):
-        # dim_1 has subtotal rows (value='') → droppable; dim_0 never ''
+    def test_multi_dim_returns_all_dims(self):
+        # Both dim_0 and dim_1 are returned when 2+ dims exist
         dims = get_droppable_dims(_make_multi_dim_long())
+        assert "dim_0" in dims
         assert "dim_1" in dims
-        assert "dim_0" not in dims
 
     def test_empty_df_returns_empty(self):
         assert get_droppable_dims(pd.DataFrame()) == []
@@ -260,11 +259,22 @@ class TestBuildWideTable:
     def test_drop_reduces_dim_columns(self):
         df = _make_multi_dim_long()
         _, cols_nodrop = build_wide_table(df, "estimate", False, None)
-        # Drop dim_1 (the droppable leaf dim) — keeps only subtotal rows
         _, cols_drop = build_wide_table(df, "estimate", False, ["dim_1"])
         n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
         n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
         assert n_dim_drop < n_dim_nodrop
+
+    def test_drop_leaf_dim_uses_summarize_and_produces_data(self):
+        # dim_1 has '' rows → summarize → keeps subtotal rows (Male/Female)
+        df = _make_multi_dim_long()
+        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
+        assert len(data) > 0 and len(cols) > 0
+
+    def test_drop_root_dim_uses_aggregate_and_produces_data(self):
+        # dim_0 has no '' rows → aggregate → sums across Sex to get age-only totals
+        df = _make_multi_dim_long()
+        data, cols = build_wide_table(df, "estimate", False, ["dim_0"])
+        assert len(data) > 0 and len(cols) > 0
 
 
 # ---------------------------------------------------------------------------

@@ -84,19 +84,25 @@ def get_available_dims(long_df: pd.DataFrame) -> list[str]:
 
 
 def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
-    """Return dim column names that can be meaningfully dropped with ``method='summarize'``.
+    """Return dim column names that can be dropped, requiring at least 2 dims to remain useful.
 
-    A dim is droppable only when the DimensionTable contains subtotal rows for it —
-    i.e. rows where that dim's value is the empty string (``''``).  Root dimensions
-    (``dim_0``) are typically always populated, so they are rarely droppable.
+    Both ``summarize`` and ``aggregate`` are supported — the method is chosen
+    automatically at drop time by ``build_wide_table``:
+
+    * ``summarize``: used when the dim has subtotal rows (``dim == ''``), meaning the
+      pre-aggregated totals for the other dimensions already exist in the data.
+    * ``aggregate``: used when no subtotal rows exist for that dim, so estimates must
+      be summed across it (e.g. summing Male+Female age buckets to get age-only totals).
+
+    Returns an empty list when fewer than 2 dims are present, since dropping the
+    only remaining dim produces an uninterpretable result.
     """
     if long_df.empty:
         return []
     try:
         dt = DimensionTable(long_df)
-        if dt.dims.empty:
-            return []
-        return [col for col in dt.dims.columns if (dt.dims[col] == "").any()]
+        cols = list(dt.dims.columns)
+        return cols if len(cols) >= 2 else []
     except Exception:
         return []
 
@@ -128,10 +134,12 @@ def build_wide_table(
     """
     dt = DimensionTable(long_df)
     if dropped_dims:
-        try:
-            dt = dt.drop(dropped_dims)
-        except (IndexError, ValueError, KeyError) as exc:
-            logger.warning("DimensionTable.drop(%s) failed: %s — ignoring", dropped_dims, exc)
+        for dim in dropped_dims:
+            try:
+                method = "summarize" if (dim in dt.dims.columns and (dt.dims[dim] == "").any()) else "aggregate"
+                dt = dt.drop(dim, method=method)
+            except (IndexError, ValueError, KeyError) as exc:
+                logger.warning("DimensionTable.drop(%s, method=%s) failed: %s — ignoring", dim, method, exc)
     is_pct = value_mode == "percent"
 
     try:

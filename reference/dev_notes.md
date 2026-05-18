@@ -1,5 +1,36 @@
 # Dev Notes
 
+## 2026-05-18 — Drop dimension auto-method selection + sidebar/chart/filter UI
+
+Branch: `main` (direct commit)
+
+### What changed
+
+- **`app/fetch.py`** — Several improvements in one commit:
+  - `get_droppable_dims`: returns ALL dim columns (not just ones with subtotal rows) when 2+ dims exist. Dropping any dim is valid — the method is auto-selected at drop time.
+  - `build_wide_table`: now iterates over each dim in `dropped_dims` individually and auto-selects the drop method per dim:
+    - `"summarize"` — when `(dt.dims[dim] == "").any()`: the dim has subtotal rows (leaf dim, e.g. Age in Sex×Age), so pre-aggregated totals already exist.
+    - `"aggregate"` — otherwise: the dim has no empty-string rows (root/middle dim, e.g. Sex), so estimates must be summed across it.
+  - Previously `dt.drop(dropped_dims)` was called as a list with no method, which worked only for summarize-compatible dims and silently failed for others.
+
+- **`app/layout.py`** — Full sidebar layout: topic/group/vintage/scope/sumlevel/geo in sticky col-3 sidebar; table + chart in col-9 main area. No tabs — chart shown below table, reactive to `wide-data-store`.
+
+- **`app/callbacks.py`** — Callback architecture split:
+  - `compute_wide_cb`: long-data-store + value_mode + show_moe + dropped_dims → wide-data-store (unfiltered pivoted wide table)
+  - `render_dim_filter_controls_cb`: wide-data-store → dim-filter-controls (one `dcc.Dropdown(multi=True)` per dim column)
+  - `render_table`: wide-data-store + ALL dim-filter values → data-output (filtered)
+  - `update_chart`: wide-data-store + chart-type + chart-x-axis + chart-color-by → chart-image.src
+  - Chart axis controls: X-axis (dimension/series) and Color-by (series/dimension) dropdowns in sidebar
+
+- **Tests** (`tests/test_fetch.py`, `tests/test_callbacks.py`):
+  - `TestGetDroppableDims.test_multi_dim_returns_all_dims`: now asserts both `dim_0` and `dim_1` are returned
+  - `TestBuildWideTable`: added `test_drop_leaf_dim_uses_summarize_and_produces_data` and `test_drop_root_dim_uses_aggregate_and_produces_data`
+  - `TestComputeDimControls.test_multi_dim_returns_drop_buttons_for_all_dims`: updated to expect both dims in button list
+
+### Design note
+
+The key invariant: in Census data, the LEAF dim (innermost split, e.g. Age in Sex×Age) always has subtotal rows where that column is `''` — these are the Male/Female totals without age detail. So `(dt.dims[dim] == "").any()` reliably detects "leaf dim → use summarize". For the ROOT dim (Sex), all rows have a value and we must aggregate.
+
 ## 2026-05-18 — Value/percent/MOE UI redesign
 
 Branch: `main` (direct commit)
