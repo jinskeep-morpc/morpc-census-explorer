@@ -197,22 +197,25 @@ class TestExportExcel:
 # compute_frictionless_download
 # ---------------------------------------------------------------------------
 
+_GEO_LIST = [{"scope": _SCOPE, "sumlevel": _SUMLEVEL}]
+
+
 class TestComputeFrictionlessDownload:
     def test_returns_no_update_when_no_store(self):
         from dash import no_update
-        result = compute_frictionless_download(None, "B01001", [2023], _SCOPE, _SUMLEVEL)
+        result = compute_frictionless_download(None, "B01001", [2023], _GEO_LIST)
         assert result is no_update
 
     def test_returns_no_update_when_no_group(self):
         from dash import no_update
         store = serialise_long(_make_long())
-        result = compute_frictionless_download(store, None, [2023], _SCOPE, _SUMLEVEL)
+        result = compute_frictionless_download(store, None, [2023], _GEO_LIST)
         assert result is no_update
 
-    def test_returns_no_update_when_no_scope(self):
+    def test_returns_no_update_when_geo_list_empty(self):
         from dash import no_update
         store = serialise_long(_make_long())
-        result = compute_frictionless_download(store, "B01001", [2023], None, _SUMLEVEL)
+        result = compute_frictionless_download(store, "B01001", [2023], [])
         assert result is no_update
 
     def test_returns_download_dict_on_success(self):
@@ -221,7 +224,7 @@ class TestComputeFrictionlessDownload:
         with patch("app.exports.CensusAPI", return_value=mock_api), \
              patch("app.exports.Endpoint"), \
              patch("app.exports.Group"):
-            result = compute_frictionless_download(store, "B01001", [2023], _SCOPE, _SUMLEVEL)
+            result = compute_frictionless_download(store, "B01001", [2023], _GEO_LIST)
         assert isinstance(result, dict)
         assert result["filename"].endswith(".zip")
         assert "base64" in result
@@ -232,7 +235,7 @@ class TestComputeFrictionlessDownload:
         with patch("app.exports.CensusAPI", return_value=mock_api), \
              patch("app.exports.Endpoint"), \
              patch("app.exports.Group"):
-            result = compute_frictionless_download(store, "B01001", [2023], _SCOPE, _SUMLEVEL)
+            result = compute_frictionless_download(store, "B01001", [2023], _GEO_LIST)
         assert "b01001" in result["filename"]
         assert "2023" in result["filename"]
 

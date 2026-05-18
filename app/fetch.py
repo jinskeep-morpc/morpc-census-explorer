@@ -55,6 +55,21 @@ def fetch_all_vintages(
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 
+def fetch_all_geos(
+    session: Session,
+    group_code: str,
+    vintages: list[int],
+    geo_list: list[dict],
+) -> pd.DataFrame:
+    """Fetch and concatenate long DataFrames for all (scope, sumlevel) pairs and vintages."""
+    frames = [
+        fetch_all_vintages(session, group_code, vintages, geo["scope"], geo["sumlevel"])
+        for geo in geo_list
+    ]
+    non_empty = [df for df in frames if not df.empty]
+    return pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
+
+
 def build_wide_table(
     long_df: pd.DataFrame,
     value_types: list[str],

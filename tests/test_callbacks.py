@@ -8,8 +8,13 @@ from app.callbacks import (
     _friendly_error,
     compute_fetch_and_store,
     compute_fetch_button_disabled,
+    compute_geo_chips,
+    compute_geo_list,
     compute_group_options,
+    render_chart_image,
 )
+
+_GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
 
 class TestComputeGroupOptions:
@@ -37,31 +42,93 @@ class TestComputeGroupOptions:
 
 
 class TestComputeFetchButtonDisabled:
-    _ALL = ("01", "B01001", [2023], "franklin", "140")
-
     def test_disabled_when_all_none(self):
-        assert compute_fetch_button_disabled(None, None, None, None, None) is True
+        assert compute_fetch_button_disabled(None, None, None, None) is True
 
     def test_enabled_when_all_provided(self):
-        assert compute_fetch_button_disabled(*self._ALL) is False
+        assert compute_fetch_button_disabled("01", "B01001", [2023], _GEO) is False
 
     def test_disabled_when_vintages_empty_list(self):
-        assert compute_fetch_button_disabled("01", "B01001", [], "franklin", "140") is True
+        assert compute_fetch_button_disabled("01", "B01001", [], _GEO) is True
 
-    def test_disabled_when_sumlevel_missing(self):
-        assert compute_fetch_button_disabled("01", "B01001", [2023], "franklin", None) is True
+    def test_disabled_when_geo_list_empty(self):
+        assert compute_fetch_button_disabled("01", "B01001", [2023], []) is True
 
-    def test_disabled_when_scope_missing(self):
-        assert compute_fetch_button_disabled("01", "B01001", [2023], None, "140") is True
+    def test_disabled_when_geo_list_none(self):
+        assert compute_fetch_button_disabled("01", "B01001", [2023], None) is True
 
     def test_disabled_when_group_missing(self):
-        assert compute_fetch_button_disabled("01", None, [2023], "franklin", "140") is True
+        assert compute_fetch_button_disabled("01", None, [2023], _GEO) is True
 
     def test_disabled_when_topic_missing(self):
-        assert compute_fetch_button_disabled(None, "B01001", [2023], "franklin", "140") is True
+        assert compute_fetch_button_disabled(None, "B01001", [2023], _GEO) is True
 
     def test_multiple_vintages_still_enabled(self):
-        assert compute_fetch_button_disabled("01", "B01001", [2023, 2022], "franklin", "140") is False
+        assert compute_fetch_button_disabled("01", "B01001", [2023, 2022], _GEO) is False
+
+    def test_multiple_geos_still_enabled(self):
+        two_geos = [{"scope": "franklin", "sumlevel": "140"}, {"scope": "licking", "sumlevel": "050"}]
+        assert compute_fetch_button_disabled("01", "B01001", [2023], two_geos) is False
+
+
+# ---------------------------------------------------------------------------
+# compute_geo_list
+# ---------------------------------------------------------------------------
+
+class TestComputeGeoList:
+    def test_add_new_geography(self):
+        result = compute_geo_list(1, [], "franklin", "050", [], "add-geo-btn")
+        assert result == [{"scope": "franklin", "sumlevel": "050"}]
+
+    def test_add_is_deduplicated(self):
+        existing = [{"scope": "franklin", "sumlevel": "050"}]
+        result = compute_geo_list(1, [], "franklin", "050", existing, "add-geo-btn")
+        assert result == existing
+
+    def test_add_second_geography(self):
+        existing = [{"scope": "franklin", "sumlevel": "050"}]
+        result = compute_geo_list(1, [], "licking", "050", existing, "add-geo-btn")
+        assert len(result) == 2
+
+    def test_add_does_nothing_when_scope_missing(self):
+        result = compute_geo_list(1, [], None, "050", [], "add-geo-btn")
+        assert result == []
+
+    def test_remove_by_index(self):
+        geos = [
+            {"scope": "franklin", "sumlevel": "050"},
+            {"scope": "licking", "sumlevel": "050"},
+        ]
+        result = compute_geo_list(None, [1, 0], None, None, geos, {"type": "remove-geo", "index": 0})
+        assert result == [{"scope": "licking", "sumlevel": "050"}]
+
+    def test_remove_last_geography(self):
+        geos = [{"scope": "franklin", "sumlevel": "050"}]
+        result = compute_geo_list(None, [1], None, None, geos, {"type": "remove-geo", "index": 0})
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# compute_geo_chips
+# ---------------------------------------------------------------------------
+
+class TestComputeGeoChips:
+    def test_empty_list_returns_placeholder(self):
+        result = compute_geo_chips([])
+        assert len(result) == 1
+
+    def test_none_list_returns_placeholder(self):
+        result = compute_geo_chips(None)
+        assert len(result) == 1
+
+    def test_one_geo_returns_one_chip(self):
+        result = compute_geo_chips([{"scope": "franklin", "sumlevel": "050"}])
+        assert len(result) == 1
+
+    def test_two_geos_return_two_chips(self):
+        geos = [{"scope": "franklin", "sumlevel": "050"}, {"scope": "licking", "sumlevel": "140"}]
+        result = compute_geo_chips(geos)
+        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -70,8 +137,6 @@ class TestComputeFetchButtonDisabled:
 
 class TestFriendlyError:
     def test_operational_error_message(self):
-        exc = Exception("OperationalError: could not connect to server")
-        # match by class name check
         class OperationalError(Exception): pass
         result = _friendly_error(OperationalError("could not connect"))
         assert "database" in result.lower() or "connection" in result.lower()
@@ -88,7 +153,7 @@ class TestFriendlyError:
 
 
 # ---------------------------------------------------------------------------
-# compute_fetch_and_store (4-tuple return)
+# compute_fetch_and_store (4-tuple return, now uses fetch_all_geos)
 # ---------------------------------------------------------------------------
 
 def _make_long():
@@ -112,28 +177,54 @@ class TestComputeFetchAndStore:
 
     def test_returns_four_tuple(self):
         with patch("app.callbacks.SessionLocal", return_value=self._mock_session()), \
-             patch("app.callbacks.fetch_all_vintages", return_value=_make_long()):
-            result = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+             patch("app.callbacks.fetch_all_geos", return_value=_make_long()):
+            result = compute_fetch_and_store(1, "B01001", [2023], _GEO)
         assert len(result) == 4
 
     def test_success_returns_store_and_status(self):
         with patch("app.callbacks.SessionLocal", return_value=self._mock_session()), \
-             patch("app.callbacks.fetch_all_vintages", return_value=_make_long()):
-            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+             patch("app.callbacks.fetch_all_geos", return_value=_make_long()):
+            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO)
         assert store is not None
         assert "B01001" in status
         assert err_open is False
 
     def test_exception_opens_alert(self):
         with patch("app.callbacks.SessionLocal", return_value=self._mock_session()), \
-             patch("app.callbacks.fetch_all_vintages", side_effect=RuntimeError("boom")):
-            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+             patch("app.callbacks.fetch_all_geos", side_effect=RuntimeError("boom")):
+            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO)
         assert err_open is True
         assert "RuntimeError" in err_msg or "boom" in err_msg
 
     def test_empty_dataframe_opens_alert(self):
         with patch("app.callbacks.SessionLocal", return_value=self._mock_session()), \
-             patch("app.callbacks.fetch_all_vintages", return_value=pd.DataFrame()):
-            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+             patch("app.callbacks.fetch_all_geos", return_value=pd.DataFrame()):
+            store, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO)
         assert err_open is True
         assert "No data" in err_msg
+
+
+# ---------------------------------------------------------------------------
+# render_chart_image
+# ---------------------------------------------------------------------------
+
+class TestRenderChartImage:
+    def test_returns_string(self):
+        df = _make_long()
+        result = render_chart_image(df, "variable_label", "estimate", "reference_period", "bar")
+        assert isinstance(result, str)
+
+    def test_returns_data_uri_or_empty(self):
+        df = _make_long()
+        result = render_chart_image(df, "variable_label", "estimate", "reference_period", "bar")
+        assert result == "" or result.startswith("data:image/png;base64,")
+
+    def test_line_chart_type(self):
+        df = _make_long()
+        result = render_chart_image(df, "reference_period", "estimate", "variable_label", "line")
+        assert isinstance(result, str)
+
+    def test_point_chart_type(self):
+        df = _make_long()
+        result = render_chart_image(df, "variable_label", "estimate", "name", "point")
+        assert isinstance(result, str)

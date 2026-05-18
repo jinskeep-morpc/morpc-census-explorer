@@ -1,5 +1,38 @@
 # Dev Notes
 
+## 2026-05-18 — Multi-geography + chart tab (items 3 & 4)
+
+Branch: `main` (direct commit)
+
+### What changed
+
+- **`pyproject.toml`** — Added `plotnine>=0.13` to dependencies.
+
+- **`app/fetch.py`** — Added `fetch_all_geos(session, group_code, vintages, geo_list)`. Loops over a list of `{"scope": str, "sumlevel": str}` dicts, calls `fetch_all_vintages` for each, and concatenates the results. Empty frames are filtered before concat.
+
+- **`app/layout.py`** — Two structural changes:
+  - **Multi-geography selection**: Row 2 (`vintage / scope / sumlevel`) gains an "Add Geography" button (col md=2, scope/sumlevel columns narrowed to md=3). A new `geo-chips` div below Row 2 shows the selected geographies as inline `dbc.Badge + html.Button("×")` chips. A `dcc.Store(id="geo-list-store", data=[])` holds the list.
+  - **Tabbed output**: Table and chart are now in `dbc.Tabs` (tab-table / tab-chart). Chart tab has four `dcc.Dropdown` controls (X axis, Y axis, Color by, Chart type) and a `html.Img(id="chart-image")`. `dcc.Loading` wrappers moved inside each tab.
+
+- **`app/callbacks.py`** — Several additions and changes:
+  - `compute_fetch_button_disabled` signature changed: `scope`/`sumlevel` replaced by `geo_list: list | None`. Button enabled when topic + group + vintages set AND geo_list is non-empty.
+  - `compute_fetch_and_store` signature changed: `scope`/`sumlevel` replaced by `geo_list`. Internally calls `fetch_all_geos`.
+  - `compute_geo_list(n_add, n_removes, scope, sumlevel, current_list, trigger_id)` — pure function (trigger_id passed explicitly from `dash.ctx.triggered_id` in the registered callback so it's testable outside Dash). Handles add-geo-btn and pattern-matching remove-geo triggers.
+  - `compute_geo_chips(geo_list)` — renders inline badge + close-button Span elements.
+  - `compute_frictionless_download` signature changed: `scope`/`sumlevel` replaced by `geo_list`; uses `geo_list[0]` for CensusAPI metadata.
+  - `render_chart_image(long_df, x_col, y_col, color_col, chart_type)` — lazy-imports plotnine; renders bar/line/point chart as base64 PNG data URI; returns `""` if plotnine unavailable or render fails.
+  - New Dash callbacks: `update_geo_list`, `render_geo_chips`, `update_chart`.
+  - `toggle_fetch_button` now inputs `geo-list-store.data` instead of `scope-dropdown.value` / `sumlevel-dropdown.value`.
+  - `fetch_and_store` now States `geo-list-store.data` instead of scope/sumlevel dropdowns.
+
+- **Tests** — Updated throughout:
+  - `test_callbacks.py`: new `TestComputeGeoList`, `TestComputeGeoChips`, `TestRenderChartImage`; updated `TestComputeFetchButtonDisabled` and `TestComputeFetchAndStore`.
+  - `test_fetch.py`: new `TestFetchAllGeos`; updated `TestComputeFetchAndStore` to patch `fetch_all_geos`.
+  - `test_exports.py`: `TestComputeFrictionlessDownload` updated for geo_list param.
+
+### Design note: plotnine geom_line warning
+A `PlotnineWarning: geom_path: Each group consist of only one observation` appears in the line-chart test because the fixture has only 1 observation per group. This is expected in tests and harmless in production.
+
 ## 2026-05-18 — Export improvements (items 1 & 2)
 
 Branch: `main` (direct commit)

@@ -9,6 +9,7 @@ from app.callbacks import compute_fetch_and_store, compute_table
 from app.fetch import (
     build_wide_table,
     deserialise_long,
+    fetch_all_geos,
     fetch_all_vintages,
     fetch_long_for_vintage,
     serialise_long,
@@ -191,22 +192,57 @@ class TestBuildWideTable:
 
 
 # ---------------------------------------------------------------------------
+# fetch_all_geos
+# ---------------------------------------------------------------------------
+
+_GEO_LIST = [{"scope": "franklin", "sumlevel": "140"}]
+
+
+class TestFetchAllGeos:
+    def test_concatenates_multiple_geos(self):
+        session = MagicMock()
+        df_franklin = _make_long(geoidfq="050US39049", name="Franklin County")
+        df_licking = _make_long(geoidfq="050US39089", name="Licking County")
+        geos = [
+            {"scope": "franklin", "sumlevel": "050"},
+            {"scope": "licking", "sumlevel": "050"},
+        ]
+        with patch("app.fetch.fetch_all_vintages", side_effect=[df_franklin, df_licking]):
+            result = fetch_all_geos(session, "B01001", [2023], geos)
+        assert len(result) == len(df_franklin) + len(df_licking)
+        assert set(result["name"].unique()) == {"Franklin County", "Licking County"}
+
+    def test_returns_empty_for_empty_geo_list(self):
+        session = MagicMock()
+        result = fetch_all_geos(session, "B01001", [2023], [])
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+
+    def test_single_geo_returns_its_data(self):
+        session = MagicMock()
+        df = _make_long()
+        with patch("app.fetch.fetch_all_vintages", return_value=df):
+            result = fetch_all_geos(session, "B01001", [2023], [{"scope": "franklin", "sumlevel": "140"}])
+        assert len(result) == len(df)
+
+
+# ---------------------------------------------------------------------------
 # compute_fetch_and_store
 # ---------------------------------------------------------------------------
 
 class TestComputeFetchAndStore:
     def test_returns_serialised_data_and_status(self):
         df = _make_long()
-        with patch("app.callbacks.fetch_all_vintages", return_value=df), \
+        with patch("app.callbacks.fetch_all_geos", return_value=df), \
              patch("app.callbacks.SessionLocal"):
-            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO_LIST)
         assert isinstance(store_data, dict)
         assert "B01001" in status
         assert err_open is False
 
     def test_returns_error_message_on_exception(self):
         with patch("app.callbacks.SessionLocal", side_effect=Exception("db down")):
-            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], "franklin", "140")
+            store_data, status, err_msg, err_open = compute_fetch_and_store(1, "B01001", [2023], _GEO_LIST)
         assert err_open is True
         assert "db down" in err_msg or err_msg
 

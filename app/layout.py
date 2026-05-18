@@ -12,12 +12,36 @@ _VALUE_TYPE_OPTIONS = [
     {"label": "Percent MOE", "value": "percent_moe"},
 ]
 
+_CHART_X_OPTIONS = [
+    {"label": "Variable label", "value": "variable_label"},
+    {"label": "Vintage (year)", "value": "reference_period"},
+    {"label": "Geography name", "value": "name"},
+]
+
+_CHART_Y_OPTIONS = [
+    {"label": "Estimate", "value": "estimate"},
+    {"label": "MOE", "value": "moe"},
+]
+
+_CHART_COLOR_OPTIONS = [
+    {"label": "Vintage (year)", "value": "reference_period"},
+    {"label": "Geography name", "value": "name"},
+    {"label": "Variable label", "value": "variable_label"},
+]
+
+_CHART_TYPE_OPTIONS = [
+    {"label": "Bar", "value": "bar"},
+    {"label": "Line", "value": "line"},
+    {"label": "Point", "value": "point"},
+]
+
 
 def make_layout() -> dbc.Container:
     return dbc.Container(
         [
-            # Client-side store for the long DataFrame (survives filter changes without re-fetch)
+            # Client-side stores
             dcc.Store(id="long-data-store"),
+            dcc.Store(id="geo-list-store", data=[]),
             # Download triggers
             dcc.Download(id="download-frictionless"),
             dcc.Download(id="download-excel"),
@@ -82,7 +106,7 @@ def make_layout() -> dbc.Container:
                                     className="mb-3",
                                 ),
 
-                                # Row 2: vintage + scope + sumlevel
+                                # Row 2: vintage + scope + sumlevel + Add Geography button
                                 dbc.Row(
                                     [
                                         dbc.Col(
@@ -107,7 +131,7 @@ def make_layout() -> dbc.Container:
                                                     clearable=True,
                                                 ),
                                             ],
-                                            md=4,
+                                            md=3,
                                         ),
                                         dbc.Col(
                                             [
@@ -119,10 +143,34 @@ def make_layout() -> dbc.Container:
                                                     clearable=True,
                                                 ),
                                             ],
-                                            md=4,
+                                            md=3,
+                                        ),
+                                        dbc.Col(
+                                            [
+                                                dbc.Label(" "),  # non-breaking space aligns button
+                                                dbc.Button(
+                                                    "Add Geography",
+                                                    id="add-geo-btn",
+                                                    color="secondary",
+                                                    outline=True,
+                                                    size="sm",
+                                                    className="w-100",
+                                                ),
+                                            ],
+                                            md=2,
                                         ),
                                     ],
-                                    className="mb-3",
+                                    className="mb-2",
+                                ),
+
+                                # Row 2.5: selected geographies display
+                                dbc.Row(
+                                    dbc.Col(
+                                        html.Div(
+                                            id="geo-chips",
+                                            className="mb-2",
+                                        )
+                                    )
                                 ),
 
                                 # Row 3: fetch button + status
@@ -209,14 +257,92 @@ def make_layout() -> dbc.Container:
                 )
             ),
 
-            # Data table output (wrapped in Loading spinner)
+            # Tabbed output: Table | Chart
             dbc.Row(
                 dbc.Col(
-                    dcc.Loading(
-                        id="loading-output",
-                        type="default",
-                        color="var(--morpc-green)",
-                        children=html.Div(id="data-output"),
+                    dbc.Tabs(
+                        [
+                            dbc.Tab(
+                                dcc.Loading(
+                                    id="loading-output",
+                                    type="default",
+                                    color="var(--morpc-green)",
+                                    children=html.Div(id="data-output"),
+                                ),
+                                label="Table",
+                                tab_id="tab-table",
+                            ),
+                            dbc.Tab(
+                                [
+                                    # Chart controls
+                                    dbc.Row(
+                                        [
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("X axis"),
+                                                    dcc.Dropdown(
+                                                        id="chart-x-axis",
+                                                        options=_CHART_X_OPTIONS,
+                                                        value="variable_label",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                md=3,
+                                            ),
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("Y axis"),
+                                                    dcc.Dropdown(
+                                                        id="chart-y-axis",
+                                                        options=_CHART_Y_OPTIONS,
+                                                        value="estimate",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                md=3,
+                                            ),
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("Color by"),
+                                                    dcc.Dropdown(
+                                                        id="chart-color-by",
+                                                        options=_CHART_COLOR_OPTIONS,
+                                                        value="reference_period",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                md=3,
+                                            ),
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("Chart type"),
+                                                    dcc.Dropdown(
+                                                        id="chart-type",
+                                                        options=_CHART_TYPE_OPTIONS,
+                                                        value="bar",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                md=3,
+                                            ),
+                                        ],
+                                        className="mt-3 mb-3",
+                                    ),
+                                    dcc.Loading(
+                                        html.Img(
+                                            id="chart-image",
+                                            style={"maxWidth": "100%"},
+                                        ),
+                                        type="default",
+                                        color="var(--morpc-green)",
+                                    ),
+                                ],
+                                label="Chart",
+                                tab_id="tab-chart",
+                            ),
+                        ],
+                        id="output-tabs",
+                        active_tab="tab-table",
                     ),
                     className="mt-3",
                 )
