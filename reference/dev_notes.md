@@ -1,5 +1,43 @@
 # Dev Notes
 
+## 2026-05-18 — Fix _choose_drop_method for universal-root dims (B01001)
+
+Branch: `main` (direct commit)
+
+### Problem
+
+Census B01001 (Sex by Age) label structure after `_parse_dims`:
+
+| dim_0   | dim_1   | dim_2         | variable       |
+|---------|---------|---------------|----------------|
+| Total:  |         |               | B01001_001     |
+| Total:  | Male:   |               | B01001_002     |
+| Total:  | Female: |               | B01001_026     |
+| Total:  | Male:   | Under 5 years | B01001_003     |
+| Total:  | Female: | Under 5 years | B01001_027     |
+
+`dim_0` = "Total:" is a universal root (same for every row, never "").  
+`dim_1` = Sex ("Male:", "Female:", or "" for only the grand-total row).  
+`dim_2` = Age leaf ("Under 5 years", ..., or "" for sex-subtotal rows).
+
+The previous heuristic (`(dt.dims[dim] == "").any()`) was True for dim_1 because the grand total row has dim_1="". It incorrectly chose `summarize`, which filtered to only that one row — returning just the grand total when the user dropped Sex.
+
+### Fix
+
+New `_choose_drop_method(dt, dim)`:
+1. Get rows where `dim == ""` (subtotal rows).
+2. For each sibling dim, check if those subtotal rows contain non-empty values AND the sibling globally has 2+ distinct non-empty values (rules out "Total:" roots).
+3. If any sibling qualifies → `summarize` (partial subtotals exist). Otherwise → `aggregate`.
+
+Result:
+- Drop dim_1 (Sex): only "" row is grand total; dim_2 is also "" there; dim_0 has only 1 distinct value → **aggregate** ✓
+- Drop dim_2 (Age): "" rows include Male/Female subtotals; dim_1 has "Male:"+"Female:" (2 values) → **summarize** ✓
+- Drop dim_0 (Total:): no "" rows → **aggregate** ✓
+
+### Tests added
+
+`TestChooseDropMethod` (6 tests) covers all three dims in B01001 structure and both dims in the simpler two-dim fixture. `test_drop_sex_in_b01001_structure_returns_age_rows` verifies the end-to-end fix.
+
 ## 2026-05-18 — Drop dimension auto-method selection + sidebar/chart/filter UI
 
 Branch: `main` (direct commit)
