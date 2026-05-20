@@ -31,13 +31,19 @@ def export_frictionless(
     vintages: list[int],
     scope: str,
     sumlevel: str,
+    chart_spec: dict | None = None,
+    title: str = "",
 ) -> bytes:
-    """Return zip bytes containing long CSV, frictionless schema YAML, and resource YAML.
+    """Return zip bytes containing a Frictionless Data Package.
 
-    Uses ``CensusAPI.save()`` to generate rich frictionless metadata for the
-    earliest selected vintage, then overwrites the CSV with the (potentially
-    multi-vintage) ``long_df``.
+    Includes: long CSV + schema/resource YAMLs (from CensusAPI.save()),
+    a datapackage.yaml descriptor, and optionally a Vega-Lite spec JSON
+    and rendered SVG when chart_spec is provided.
     """
+    import json
+    from datetime import date
+    import yaml
+
     vintage = sorted(vintages)[0]
     endpoint = Endpoint(SURVEY, vintage)
     group = Group(endpoint, group_code)
@@ -46,8 +52,70 @@ def export_frictionless(
         tmpdir = Path(_tmp)
         api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
         api.save(tmpdir)
-        # Overwrite single-vintage CSV with combined multi-vintage data
         long_df.to_csv(tmpdir / api.filename, index=False)
+
+        csv_name = api.filename
+        schema_name = csv_name.replace(".long.csv", ".schema.yaml")
+        resource_name = csv_name.replace(".long.csv", ".resource.yaml")
+
+        resources = [
+            {
+                "name": "long-table",
+                "path": csv_name,
+                "title": "Long-form data table (all years and geographies)",
+                "schema": schema_name,
+            }
+        ]
+
+        if chart_spec:
+            # Vega-Lite spec JSON
+            spec_filename = "chart-spec.vega.json"
+            (tmpdir / spec_filename).write_text(json.dumps(chart_spec, indent=2))
+            resources.append({
+                "name": "chart-spec",
+                "path": spec_filename,
+                "title": "Vega-Lite chart specification",
+                "mediatype": "application/json",
+            })
+
+            # Rendered SVG via vl_convert
+            try:
+                import vl_convert as vlc
+                svg_str = vlc.vegalite_to_svg(chart_spec)
+                svg_filename = "chart.svg"
+                (tmpdir / svg_filename).write_text(svg_str, encoding="utf-8")
+                resources.append({
+                    "name": "chart",
+                    "path": svg_filename,
+                    "title": "Rendered chart",
+                    "mediatype": "image/svg+xml",
+                })
+            except Exception as exc:
+                logger.warning("SVG render failed: %s", exc)
+
+        # Build datapackage.yaml
+        vintage_str = "_".join(str(v) for v in sorted(vintages))
+        pkg_name = f"census-acs5-{group_code.lower()}-{vintage_str}"
+        description = (
+            f"U.S. Census Bureau ACS 5-Year Estimates for {group_code}, "
+            f"{scope}, vintage(s) {', '.join(str(v) for v in sorted(vintages))}."
+        )
+        datapackage = {
+            "name": pkg_name,
+            "title": title or f"{group_code} ({vintage_str})",
+            "description": description,
+            "sources": [{
+                "title": "U.S. Census Bureau, American Community Survey 5-Year Estimates",
+                "path": "https://www.census.gov/data/developers/data-sets/acs-5year.html",
+            }],
+            "licenses": [{"name": "CC-BY-4.0", "path": "https://creativecommons.org/licenses/by/4.0/"}],
+            "created": date.today().isoformat(),
+            "resources": resources,
+        }
+        (tmpdir / "datapackage.yaml").write_text(
+            yaml.dump(datapackage, default_flow_style=False, allow_unicode=True),
+            encoding="utf-8",
+        )
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

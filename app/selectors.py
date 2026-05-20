@@ -14,7 +14,7 @@ from morpc_census.api import Endpoint
 from morpc_census.constants import HIGHLEVEL_GROUP_DESC
 
 SURVEY = "acs/acs5"
-_DEFAULT_LATEST_VINTAGE = 2023
+_DEFAULT_LATEST_VINTAGE = 2024
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,62 @@ def vintage_options() -> list[dict]:
         return [{"label": str(y), "value": y} for y in sorted(ep.vintages, reverse=True)]
     except Exception:
         logger.warning("Could not fetch vintages from Census API; using fallback range.")
-        return [{"label": str(y), "value": y} for y in range(2023, 2008, -1)]
+        return [{"label": str(y), "value": y} for y in range(2024, 2008, -1)]
+
+
+def _scope_label(key: str, scope) -> str:
+    """Return a display label like 'County: Franklin' derived from scope metadata."""
+    for_param = getattr(scope, "for_param", "") or ""
+    geo_type = for_param.split(":")[0].strip().lower() if ":" in for_param else ""
+    values_part = for_param.split(":", 1)[-1] if ":" in for_param else ""
+    is_multi = "," in values_part
+
+    if geo_type == "us":
+        return "National"
+    if geo_type == "state":
+        return f"State: {key.replace('_', ' ').title()}"
+    if geo_type == "county" and not is_multi:
+        return f"County: {key.replace('_', ' ').title()}"
+    if geo_type == "county" and is_multi:
+        if key.startswith("region"):
+            suffix = key[len("region"):]
+            name = f"{suffix}-County" if suffix.isdigit() else suffix.upper()
+        else:
+            name = key.replace("_", " ").title()
+        return f"Region: {name}"
+    if "metropolitan" in geo_type or "micropolitan" in geo_type:
+        name = key.replace("cbsa", "").replace("_", " ").strip().title()
+        return f"Metro Area: {name}"
+    # Fallback: capitalise the key
+    return key.replace("_", " ").title()
+
+
+@lru_cache(maxsize=1)
+def _scopes_map():
+    """Return the SCOPES dict, or {} if unavailable."""
+    try:
+        from morpc_census.geos import SCOPES
+        return SCOPES
+    except Exception:
+        return {}
+
+
+def scope_label(key: str) -> str:
+    """Return the friendly display label for a scope key."""
+    scopes = _scopes_map()
+    if key in scopes:
+        return _scope_label(key, scopes[key])
+    return key.replace("_", " ").title()
 
 
 @lru_cache(maxsize=1)
 def scope_options() -> list[dict]:
     """All named scopes from morpc.SCOPES, sorted alphabetically."""
     try:
-        from morpc_census.geos import SCOPES
-        return [{"label": k, "value": k} for k in sorted(SCOPES.keys())]
+        scopes = _scopes_map()
+        if not scopes:
+            raise ValueError("empty")
+        return [{"label": _scope_label(k, scopes[k]), "value": k} for k in sorted(scopes.keys())]
     except Exception:
         logger.warning("Could not load scope options from morpc.")
         return []

@@ -1,6 +1,7 @@
 """Top-level Dash layout for morpc-census-explorer."""
 
 import dash_bootstrap_components as dbc
+import dash_vega_components as dvc
 from dash import dcc, html
 
 from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
@@ -127,9 +128,14 @@ def make_layout() -> dbc.Container:
                                                     width=7,
                                                 ),
                                                 dbc.Col(
-                                                    html.Small(
-                                                        id="fetch-status",
-                                                        className="text-muted d-block",
+                                                    dcc.Loading(
+                                                        html.Small(
+                                                            id="fetch-status",
+                                                            className="text-muted d-block",
+                                                        ),
+                                                        type="circle",
+                                                        color="var(--morpc-green)",
+                                                        style={"display": "inline-block"},
                                                     ),
                                                     width=5,
                                                 ),
@@ -160,6 +166,77 @@ def make_layout() -> dbc.Container:
 
                                         html.Hr(className="my-2"),
 
+                                        # Chart options
+                                        dbc.Label("Chart", className="fw-semibold mb-1 small"),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("X axis", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-x-axis",
+                                                            options=[],
+                                                            value=None,
+                                                            clearable=False,
+                                                        ),
+                                                    ]
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Y axis", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-y-axis",
+                                                            options=[],
+                                                            value=None,
+                                                            clearable=False,
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            className="mb-1 g-1",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Color by", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-color-by",
+                                                            options=[],
+                                                            value=None,
+                                                            clearable=True,
+                                                        ),
+                                                    ]
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Facet by", className="small mb-0"),
+                                                        dcc.Dropdown(
+                                                            id="chart-facet",
+                                                            options=[],
+                                                            value=None,
+                                                            clearable=True,
+                                                            placeholder="None",
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            className="mb-1 g-1",
+                                        ),
+                                        dbc.Label("Chart type", className="small mb-0"),
+                                        dcc.Dropdown(
+                                            id="chart-type",
+                                            options=[
+                                                {"label": "Bar", "value": "bar"},
+                                                {"label": "Line", "value": "line"},
+                                                {"label": "Point", "value": "point"},
+                                            ],
+                                            value="bar",
+                                            clearable=False,
+                                        ),
+
+                                        html.Hr(className="my-2"),
+
                                         # Export
                                         dbc.Label("Export", className="fw-semibold mb-1 small"),
                                         dbc.ButtonGroup(
@@ -180,55 +257,6 @@ def make_layout() -> dbc.Container:
                                                 ),
                                             ],
                                             className="w-100 mb-2",
-                                        ),
-
-                                        html.Hr(className="my-2"),
-
-                                        # Chart options
-                                        dbc.Label("Chart", className="fw-semibold mb-1 small"),
-                                        dbc.Row(
-                                            [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("X axis", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-x-axis",
-                                                            options=[
-                                                                {"label": "Dimension", "value": "dimension"},
-                                                                {"label": "Series", "value": "series"},
-                                                            ],
-                                                            value="dimension",
-                                                            clearable=False,
-                                                        ),
-                                                    ]
-                                                ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Color by", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-color-by",
-                                                            options=[
-                                                                {"label": "Series", "value": "series"},
-                                                                {"label": "Dimension", "value": "dimension"},
-                                                            ],
-                                                            value="series",
-                                                            clearable=False,
-                                                        ),
-                                                    ]
-                                                ),
-                                            ],
-                                            className="mb-1 g-1",
-                                        ),
-                                        dbc.Label("Chart type", className="small mb-0"),
-                                        dcc.Dropdown(
-                                            id="chart-type",
-                                            options=[
-                                                {"label": "Bar", "value": "bar"},
-                                                {"label": "Line", "value": "line"},
-                                                {"label": "Point", "value": "point"},
-                                            ],
-                                            value="bar",
-                                            clearable=False,
                                         ),
                                     ],
                                     className="p-2",
@@ -284,9 +312,11 @@ def make_layout() -> dbc.Container:
 
                             # Chart (below table, reactive to table state)
                             dcc.Loading(
-                                html.Img(
+                                dvc.Vega(
                                     id="chart-image",
-                                    style={"maxWidth": "100%", "display": "block", "marginTop": "1rem"},
+                                    spec={},
+                                    opt={"actions": False},
+                                    style={"width": "100%", "marginTop": "1rem"},
                                 ),
                                 type="default",
                                 color="var(--morpc-green)",
