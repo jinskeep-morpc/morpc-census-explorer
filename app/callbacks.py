@@ -25,7 +25,7 @@ from app.fetch import (
     serialise_long,
 )
 from morpc_census.api import DimensionTable
-from app.selectors import group_options_for_topic
+from app.selectors import group_options_for_topic, scope_label
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ def compute_geo_chips(geo_list: list | None) -> list:
             html.Span(
                 [
                     dbc.Badge(
-                        f"{geo['scope']} / {geo['sumlevel']}",
+                        f"{scope_label(geo['scope'])} / {geo['sumlevel']}",
                         color="primary",
                         pill=True,
                     ),
