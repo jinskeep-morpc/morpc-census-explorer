@@ -787,6 +787,7 @@ def register_callbacks(app: dash.Dash) -> None:
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
+        running=[(Output("fetch-button", "disabled"), True, False)],
         prevent_initial_call=True,
     )
     def fetch_and_store(n_clicks, group_code, vintages, geo_list):

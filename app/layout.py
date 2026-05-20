@@ -128,9 +128,14 @@ def make_layout() -> dbc.Container:
                                                     width=7,
                                                 ),
                                                 dbc.Col(
-                                                    html.Small(
-                                                        id="fetch-status",
-                                                        className="text-muted d-block",
+                                                    dcc.Loading(
+                                                        html.Small(
+                                                            id="fetch-status",
+                                                            className="text-muted d-block",
+                                                        ),
+                                                        type="circle",
+                                                        color="var(--morpc-green)",
+                                                        style={"display": "inline-block"},
                                                     ),
                                                     width=5,
                                                 ),
