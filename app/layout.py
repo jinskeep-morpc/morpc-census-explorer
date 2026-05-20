@@ -166,30 +166,6 @@ def make_layout() -> dbc.Container:
 
                                         html.Hr(className="my-2"),
 
-                                        # Export
-                                        dbc.Label("Export", className="fw-semibold mb-1 small"),
-                                        dbc.ButtonGroup(
-                                            [
-                                                dbc.Button(
-                                                    "Frictionless",
-                                                    id="export-frictionless-btn",
-                                                    color="secondary",
-                                                    outline=True,
-                                                    size="sm",
-                                                ),
-                                                dbc.Button(
-                                                    "Excel (.xlsx)",
-                                                    id="export-excel-btn",
-                                                    color="secondary",
-                                                    outline=True,
-                                                    size="sm",
-                                                ),
-                                            ],
-                                            className="w-100 mb-2",
-                                        ),
-
-                                        html.Hr(className="my-2"),
-
                                         # Chart options
                                         dbc.Label("Chart", className="fw-semibold mb-1 small"),
                                         dbc.Row(
@@ -257,6 +233,30 @@ def make_layout() -> dbc.Container:
                                             ],
                                             value="bar",
                                             clearable=False,
+                                        ),
+
+                                        html.Hr(className="my-2"),
+
+                                        # Export
+                                        dbc.Label("Export", className="fw-semibold mb-1 small"),
+                                        dbc.ButtonGroup(
+                                            [
+                                                dbc.Button(
+                                                    "Frictionless",
+                                                    id="export-frictionless-btn",
+                                                    color="secondary",
+                                                    outline=True,
+                                                    size="sm",
+                                                ),
+                                                dbc.Button(
+                                                    "Excel (.xlsx)",
+                                                    id="export-excel-btn",
+                                                    color="secondary",
+                                                    outline=True,
+                                                    size="sm",
+                                                ),
+                                            ],
+                                            className="w-100 mb-2",
                                         ),
                                     ],
                                     className="p-2",
