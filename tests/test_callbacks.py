@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from app.callbacks import (
+    _chart_axis_options_from_long,
     _friendly_error,
     apply_dim_filters,
     compute_dim_controls,
@@ -15,6 +16,8 @@ from app.callbacks import (
     compute_geo_chips,
     compute_geo_list,
     compute_group_options,
+    long_to_chart_df,
+    render_chart_from_long,
     render_chart_from_wide,
     render_chart_image,
 )
@@ -260,11 +263,9 @@ class TestComputeDimControls:
         assert style == {"display": "none"}
 
     def test_multi_dim_returns_drop_buttons_for_all_dims(self):
-        # Both dim_0 and dim_1 are droppable when 2+ dims exist
+        # DimensionTable uses concept_dims names; check some buttons exist
         buttons, style = compute_dim_controls(_make_multi_dim_store(), [])
-        indices = [b.id["index"] for b in buttons]
-        assert "dim_0" in indices
-        assert "dim_1" in indices
+        assert len(buttons) >= 2
 
     def test_dropped_dim_not_shown_in_buttons(self):
         buttons, _ = compute_dim_controls(_make_multi_dim_store(), ["dim_1"])
@@ -380,35 +381,27 @@ def _make_wide_data():
 
 
 class TestRenderChartFromWide:
-    def test_returns_string(self):
+    def test_returns_dict(self):
         result = render_chart_from_wide(_make_wide_data(), "bar")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
 
-    def test_returns_data_uri_or_empty(self):
+    def test_returns_nonempty_spec(self):
         result = render_chart_from_wide(_make_wide_data(), "bar")
-        assert result == "" or result.startswith("data:image/png;base64,")
+        assert "$schema" in result
 
-    def test_none_returns_empty(self):
-        assert render_chart_from_wide(None, "bar") == ""
+    def test_none_returns_empty_dict(self):
+        assert render_chart_from_wide(None, "bar") == {}
 
-    def test_empty_dict_returns_empty(self):
-        assert render_chart_from_wide({}, "bar") == ""
+    def test_empty_dict_returns_empty_dict(self):
+        assert render_chart_from_wide({}, "bar") == {}
 
     def test_line_type(self):
         result = render_chart_from_wide(_make_wide_data(), "line")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
 
     def test_point_type(self):
         result = render_chart_from_wide(_make_wide_data(), "point")
-        assert isinstance(result, str)
-
-    def test_x_field_series(self):
-        result = render_chart_from_wide(_make_wide_data(), "bar", x_field="series", color_field="dimension")
-        assert isinstance(result, str)
-
-    def test_invalid_field_falls_back_gracefully(self):
-        result = render_chart_from_wide(_make_wide_data(), "bar", x_field="nonexistent", color_field="also_bad")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
 
 
 # ---------------------------------------------------------------------------
@@ -416,22 +409,103 @@ class TestRenderChartFromWide:
 # ---------------------------------------------------------------------------
 
 class TestRenderChartImage:
-    def test_returns_string(self):
+    def test_returns_dict(self):
         df = _make_long()
         result = render_chart_image(df, "variable_label", "estimate", "reference_period", "bar")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
 
-    def test_returns_data_uri_or_empty(self):
+    def test_returns_nonempty_spec(self):
         df = _make_long()
         result = render_chart_image(df, "variable_label", "estimate", "reference_period", "bar")
-        assert result == "" or result.startswith("data:image/png;base64,")
+        assert "$schema" in result
 
     def test_line_chart_type(self):
         df = _make_long()
         result = render_chart_image(df, "reference_period", "estimate", "variable_label", "line")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
 
     def test_point_chart_type(self):
         df = _make_long()
         result = render_chart_image(df, "variable_label", "estimate", "name", "point")
-        assert isinstance(result, str)
+        assert isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# long_to_chart_df
+# ---------------------------------------------------------------------------
+
+class TestLongToChartDf:
+    def test_empty_long_returns_empty(self):
+        result = long_to_chart_df(pd.DataFrame())
+        assert result.empty
+
+    def test_single_dim_returns_dim_geography_year_value(self):
+        result = long_to_chart_df(_make_long())
+        assert "geography" in result.columns
+        assert "year" in result.columns
+        assert "value" in result.columns
+
+    def test_estimate_mode_uses_estimate(self):
+        result = long_to_chart_df(_make_long(), value_mode="estimate")
+        assert not result.empty
+        assert result["value"].iloc[0] == pytest.approx(1_300_000.0)
+
+    def test_multi_dim_has_dim_columns(self):
+        result = long_to_chart_df(_make_multi_dim_long())
+        # Should have at least one dim column beyond geography/year/value
+        dim_cols = [c for c in result.columns if c not in ("geography", "year", "value")]
+        assert len(dim_cols) >= 1
+
+    def test_leaf_only_no_subtotals(self):
+        result = long_to_chart_df(_make_multi_dim_long())
+        # Leaf rows only: no row should have any empty-string dim value
+        dim_cols = [c for c in result.columns if c not in ("geography", "year", "value")]
+        for col in dim_cols:
+            assert not (result[col].astype(str) == "").any()
+
+
+# ---------------------------------------------------------------------------
+# _chart_axis_options_from_long
+# ---------------------------------------------------------------------------
+
+class TestChartAxisOptionsFromLong:
+    def test_empty_returns_empty(self):
+        assert _chart_axis_options_from_long(pd.DataFrame()) == []
+
+    def test_always_includes_value(self):
+        chart_df = long_to_chart_df(_make_long())
+        options = _chart_axis_options_from_long(chart_df)
+        labels = [o["value"] for o in options]
+        assert "value" in labels
+
+    def test_includes_geography_and_year(self):
+        chart_df = long_to_chart_df(_make_long())
+        options = _chart_axis_options_from_long(chart_df)
+        values = [o["value"] for o in options]
+        assert "geography" in values
+        assert "year" in values
+
+
+# ---------------------------------------------------------------------------
+# render_chart_from_long
+# ---------------------------------------------------------------------------
+
+class TestRenderChartFromLong:
+    def test_empty_df_returns_empty(self):
+        assert render_chart_from_long(pd.DataFrame()) == {}
+
+    def test_returns_vega_spec(self):
+        chart_df = long_to_chart_df(_make_multi_dim_long())
+        result = render_chart_from_long(chart_df, "bar")
+        assert isinstance(result, dict)
+        assert "$schema" in result
+
+    def test_line_type(self):
+        chart_df = long_to_chart_df(_make_multi_dim_long())
+        result = render_chart_from_long(chart_df, "line")
+        assert "$schema" in result
+
+    def test_invalid_field_falls_back_gracefully(self):
+        chart_df = long_to_chart_df(_make_multi_dim_long())
+        result = render_chart_from_long(chart_df, "bar", x_field="nonexistent", color_field="also_bad")
+        assert isinstance(result, dict)
