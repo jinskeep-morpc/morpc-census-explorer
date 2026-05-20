@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
-from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
+from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group, get_concept_dims_from_long
 from sqlalchemy.orm import Session
 
 from app.cache import get_census_long, put_census_long
@@ -155,6 +155,8 @@ def build_wide_table(
     (data, columns)
         Ready to pass directly to ``dash_table.DataTable(data=..., columns=...)``.
     """
+    dim_name_map = get_concept_dims_from_long(long_df)
+
     dt = DimensionTable(long_df)
     if dropped_dims:
         for dim in dropped_dims:
@@ -220,7 +222,7 @@ def build_wide_table(
 
     columns: list[dict] = [
         {
-            "name": n.replace("_", " ").title(),
+            "name": dim_name_map.get(n, n.replace("_", " ").title()),
             "id": f"__dim_{i}__",
             "categories": dim_categories.get(n, []),
         }

@@ -23,6 +23,7 @@ from app.fetch import (
     get_droppable_dims,
     serialise_long,
 )
+from morpc_census.api import get_concept_dims_from_long
 from app.selectors import group_options_for_topic
 
 
@@ -117,9 +118,10 @@ def compute_dim_controls(
     if not droppable:
         return [], {"display": "none"}
     dropped = set(dropped_dims or [])
+    dim_name_map = get_concept_dims_from_long(long_df)
     buttons = [
         dbc.Button(
-            f"Drop {dim.replace('_', ' ').title()}",
+            f"Drop {dim_name_map.get(dim, dim.replace('_', ' ').title())}",
             id={"type": "drop-dim-btn", "index": dim},
             size="sm",
             color="warning",
