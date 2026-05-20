@@ -304,6 +304,8 @@ def compute_frictionless_download(
     group_code: str | None,
     vintages: list[int] | None,
     geo_list: list[dict] | None,
+    chart_spec: dict | None = None,
+    group_options: list[dict] | None = None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for frictionless zip, or None on error."""
     if not store_data or not group_code or not vintages or not geo_list:
@@ -312,7 +314,17 @@ def compute_frictionless_download(
         long_df = deserialise_long(store_data)
         scope = geo_list[0]["scope"]
         sumlevel = geo_list[0]["sumlevel"]
-        zip_bytes = export_frictionless(long_df, group_code, vintages, scope, sumlevel)
+        title = ""
+        if group_options:
+            opt = next((o for o in group_options if o["value"] == group_code), None)
+            if opt:
+                label = opt["label"]
+                title = label.split(" — ", 1)[-1] if " — " in label else label
+        zip_bytes = export_frictionless(
+            long_df, group_code, vintages, scope, sumlevel,
+            chart_spec=chart_spec or None,
+            title=title,
+        )
         vintage_str = "_".join(str(v) for v in sorted(vintages))
         filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
         return dcc.send_bytes(zip_bytes, filename)
@@ -937,10 +949,12 @@ def register_callbacks(app: dash.Dash) -> None:
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
+        State("chart-image", "spec"),
+        State("group-dropdown", "options"),
         prevent_initial_call=True,
     )
-    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list):
-        return compute_frictionless_download(store_data, group_code, vintages, geo_list)
+    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list, chart_spec, group_options):
+        return compute_frictionless_download(store_data, group_code, vintages, geo_list, chart_spec, group_options)
 
     @app.callback(
         Output("download-excel", "data"),

@@ -26,6 +26,7 @@ dependencies = [
     "xlsxwriter>=3.0",
     "altair>=5.0",
     "dash-vega-components>=0.4",
+    "vl-convert-python>=1.0",
 ]
 
 [project.optional-dependencies]

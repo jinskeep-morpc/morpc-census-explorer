@@ -81,7 +81,7 @@ def _mock_census_api(group_code: str = "B01001", vintage: int = 2023) -> MagicMo
     return mock_api
 
 
-def _export_frictionless_mocked(df, group_code="B01001", vintages=None):
+def _export_frictionless_mocked(df, group_code="B01001", vintages=None, chart_spec=None):
     """Call export_frictionless with CensusAPI/Endpoint/Group mocked out."""
     if vintages is None:
         vintages = [2023]
@@ -90,7 +90,7 @@ def _export_frictionless_mocked(df, group_code="B01001", vintages=None):
     with patch("app.exports.CensusAPI", return_value=mock_api), \
          patch("app.exports.Endpoint"), \
          patch("app.exports.Group"):
-        return export_frictionless(df, group_code, vintages, _SCOPE, _SUMLEVEL)
+        return export_frictionless(df, group_code, vintages, _SCOPE, _SUMLEVEL, chart_spec=chart_spec)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +156,47 @@ class TestExportFrictionless:
              patch("app.exports.Group"):
             export_frictionless(df, "B01001", [2022, 2023], _SCOPE, _SUMLEVEL)
         mock_ep.assert_called_once_with("acs/acs5", 2022)
+
+    def test_zip_contains_datapackage_yaml(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert "datapackage.yaml" in names
+
+    def test_datapackage_yaml_has_required_keys(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            content = zf.read("datapackage.yaml").decode()
+        import yaml
+        pkg = yaml.safe_load(content)
+        assert "name" in pkg
+        assert "resources" in pkg
+        assert "sources" in pkg
+
+    def test_zip_contains_vega_spec_when_provided(self):
+        import altair as alt
+        df2 = pd.DataFrame({"x": ["A"], "y": [1.0]})
+        spec = alt.Chart(df2).mark_bar().encode(x="x:N", y="y:Q").to_dict()
+        result = _export_frictionless_mocked(_make_long(), chart_spec=spec)
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert "chart-spec.vega.json" in names
+
+    def test_zip_contains_svg_when_spec_provided(self):
+        import altair as alt
+        df2 = pd.DataFrame({"x": ["A"], "y": [1.0]})
+        spec = alt.Chart(df2).mark_bar().encode(x="x:N", y="y:Q").to_dict()
+        result = _export_frictionless_mocked(_make_long(), chart_spec=spec)
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert "chart.svg" in names
+
+    def test_no_vega_files_when_no_spec(self):
+        result = _export_frictionless_mocked(_make_long(), chart_spec=None)
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert "chart-spec.vega.json" not in names
+        assert "chart.svg" not in names
 
 
 # ---------------------------------------------------------------------------
