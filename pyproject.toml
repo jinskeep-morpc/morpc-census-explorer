@@ -24,7 +24,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "frictionless>=5.0",
     "xlsxwriter>=3.0",
-    "plotnine>=0.13",
+    "altair>=5.0",
+    "dash-vega-components>=0.4",
 ]
 
 [project.optional-dependencies]

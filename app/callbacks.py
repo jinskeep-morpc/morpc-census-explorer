@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import logging
 
+import altair as alt
 import pandas as pd
 
 import dash
@@ -164,11 +163,12 @@ def compute_dim_filter_controls(wide_data: dict | None) -> list:
     for col in dim_cols:
         col_id = col["id"]       # "__dim_0__"
         col_name = col_id[2:-2]  # "dim_0"
-        unique_vals = sorted({
-            str(row[col_id])
-            for row in data
-            if row.get(col_id) not in (None, "")
-        })
+        present = {str(row[col_id]) for row in data if row.get(col_id) not in (None, "")}
+        ordered_cats = col.get("categories", [])
+        if ordered_cats:
+            unique_vals = [c for c in ordered_cats if c in present]
+        else:
+            unique_vals = sorted(present)
         if len(unique_vals) <= 1:
             continue
         controls.append(
@@ -338,151 +338,223 @@ def compute_excel_download(
         return no_update
 
 
+def wide_to_long(data: list[dict], columns: list[dict]) -> pd.DataFrame:
+    """Convert build_wide_table output to a long DataFrame for charting.
+
+    Returns a DataFrame with columns:
+    - ``dim_0``, ``dim_1``, ... : ordered Categorical per dimension level
+    - ``geography``: geo name parsed from the value column ID
+    - ``year``: vintage year parsed from the value column ID
+    - ``value``: numeric estimate value
+
+    Subtotal/aggregate rows are excluded using the ``__is_leaf__`` flag written
+    by ``build_wide_table``, with a fallback heuristic for older data.
+    """
+    df_wide = pd.DataFrame(data)
+    dim_cols = sorted(
+        [c for c in columns if c["id"].startswith("__dim_")],
+        key=lambda c: c["id"],
+    )
+    est_cols = [c for c in columns if not c["id"].startswith("__dim_") and "[MOE]" not in c["name"]]
+
+    if df_wide.empty or not est_cols:
+        return pd.DataFrame()
+
+    # Filter to leaf rows only
+    if "__is_leaf__" in df_wide.columns:
+        df_wide = df_wide[df_wide["__is_leaf__"]].reset_index(drop=True)
+    else:
+        # Fallback: heuristic for data written before __is_leaf__ was added
+        dim_col_ids = [c["id"] for c in dim_cols]
+        if len(dim_col_ids) > 1:
+            higher_ids = dim_col_ids[1:]
+
+            def _is_total(row: pd.Series) -> bool:
+                return all(
+                    row.get(cid) in (None, "", "nan", "None") or pd.isna(row.get(cid))
+                    for cid in higher_ids
+                )
+
+            df_wide = df_wide[~df_wide.apply(_is_total, axis=1)].reset_index(drop=True)
+
+    if df_wide.empty:
+        return pd.DataFrame()
+
+    dim_col_ids = [c["id"] for c in dim_cols]
+    dim_rename = {c["id"]: c["id"].strip("_") for c in dim_cols}  # __dim_0__ → dim_0
+
+    frames = []
+    for col in est_cols:
+        parts = col["id"].rsplit("__", 3)
+        geography = parts[0] if len(parts) == 4 else col["name"]
+        year = int(parts[1]) if len(parts) == 4 and parts[1].isdigit() else None
+
+        chunk = df_wide[dim_col_ids + [col["id"]]].copy()
+        chunk = chunk.rename(columns={**dim_rename, col["id"]: "value"})
+        chunk["geography"] = geography
+        chunk["year"] = year
+        frames.append(chunk)
+
+    long_df = pd.concat(frames, ignore_index=True).dropna(subset=["value"])
+
+    # Apply ordered Categorical dtype to each dim column using Census-defined order
+    for dc in dim_cols:
+        clean_name = dc["id"].strip("_")  # dim_0, dim_1, ...
+        cats = dc.get("categories", [])
+        if clean_name in long_df.columns and cats:
+            long_df[clean_name] = pd.Categorical(
+                long_df[clean_name], categories=cats, ordered=True
+            )
+
+    return long_df
+
+
+def _chart_axis_options(wide_data: dict) -> list[dict]:
+    """Return dropdown options derived from wide_data columns."""
+    columns = wide_data.get("columns", [])
+    dim_cols = sorted(
+        [c for c in columns if c["id"].startswith("__dim_")],
+        key=lambda c: c["id"],
+    )
+    options = [{"label": c["name"], "value": c["id"].strip("_")} for c in dim_cols]
+    options += [
+        {"label": "Geography", "value": "geography"},
+        {"label": "Year", "value": "year"},
+        {"label": "Value", "value": "value"},
+    ]
+    return options
+
+
 def render_chart_image(
-    long_df,
+    long_df: pd.DataFrame,
     x_col: str,
     y_col: str,
     color_col: str,
     chart_type: str,
-) -> str:
-    """Return a base64-encoded PNG data URI from a plotnine chart, or '' on error."""
-    try:
-        from plotnine import (
-            ggplot, aes, geom_bar, geom_line, geom_point,
-            theme, element_text, labs,
-        )
-    except ImportError:
-        logger.warning("plotnine not available; chart rendering disabled.")
-        return ""
-
+) -> dict:
+    """Return a Vega-Lite spec dict from long-format data, or {} on error."""
     try:
         df = long_df.copy()
-        # Treat reference_period as categorical so it gets a discrete colour scale
         if "reference_period" in df.columns:
             df["reference_period"] = df["reference_period"].astype(str)
 
+        x_enc = alt.X(f"{x_col}:N", title=x_col.replace("_", " ").title())
+        y_enc = alt.Y(f"{y_col}:Q", title=y_col.replace("_", " ").title())
+        color_enc = alt.Color(f"{color_col}:N", title="")
+        tooltip = [f"{x_col}:N", f"{color_col}:N", f"{y_col}:Q"]
+
         if chart_type == "bar":
-            mapping = aes(x=x_col, y=y_col, fill=color_col)
-            geom = geom_bar(stat="identity", position="dodge")
-        elif chart_type == "line":
-            mapping = aes(x=x_col, y=y_col, color=color_col, group=color_col)
-            geom = geom_line()
-        else:
-            mapping = aes(x=x_col, y=y_col, color=color_col)
-            geom = geom_point()
-
-        p = (
-            ggplot(df, mapping)
-            + geom
-            + theme(axis_text_x=element_text(angle=45, hjust=1))
-            + labs(
-                x=x_col.replace("_", " ").title(),
-                y=y_col.replace("_", " ").title(),
+            chart = (
+                alt.Chart(df)
+                .mark_bar()
+                .encode(x=x_enc, xOffset=color_enc, y=y_enc, color=color_enc, tooltip=tooltip)
             )
-        )
+        elif chart_type == "line":
+            chart = (
+                alt.Chart(df)
+                .mark_line(point=True)
+                .encode(x=x_enc, y=y_enc, color=color_enc, tooltip=tooltip)
+            )
+        else:
+            chart = (
+                alt.Chart(df)
+                .mark_point()
+                .encode(x=x_enc, y=y_enc, color=color_enc, tooltip=tooltip)
+            )
 
-        buf = io.BytesIO()
-        p.save(buf, format="png", dpi=150, width=10, height=6, verbose=False)
-        buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode()
-        return f"data:image/png;base64,{encoded}"
+        return chart.properties(width="container", height=350).to_dict()
     except Exception as exc:
         logger.error("Chart render failed: %s", exc)
-        return ""
+        return {}
 
 
 def render_chart_from_wide(
     wide_data: dict | None,
     chart_type: str = "bar",
-    x_field: str = "dimension",
-    color_field: str = "series",
-) -> str:
-    """Render a chart from the serialised wide-table data produced by build_wide_table.
+    x_field: str = "dim_0",
+    y_field: str = "value",
+    color_field: str | None = "geography",
+    facet_field: str | None = None,
+) -> dict:
+    """Render a Vega-Lite spec from the serialised wide-table produced by build_wide_table.
 
-    ``plot_df`` columns available for mapping:
-    - ``dimension``: leaf (most specific) dim label per table row
-    - ``series``: geography + vintage column label (e.g. "Franklin County (2023)")
-    - ``value``: numeric estimate/percent value
-
-    Returns a base64-encoded PNG data URI, or '' on error/no data.
+    Returns a Vega-Lite spec dict, or {} on error/no data.
     """
     if not wide_data:
-        return ""
+        return {}
     data = wide_data.get("data", [])
     columns = wide_data.get("columns", [])
     if not data or not columns:
-        return ""
+        return {}
 
     try:
-        from plotnine import (
-            aes, element_text, geom_bar, geom_line, geom_point,
-            ggplot, labs, position_dodge, theme,
-        )
-    except ImportError:
-        logger.warning("plotnine not available; chart rendering disabled.")
-        return ""
-
-    try:
-        df_wide = pd.DataFrame(data)
-        dim_col_ids = [c["id"] for c in columns if c["id"].startswith("__dim_")]
-        est_cols = [c for c in columns if not c["id"].startswith("__dim_") and "[MOE]" not in c["name"]]
-
-        if not est_cols:
-            return ""
-
-        def _leaf_label(row: pd.Series) -> str:
-            vals = [
-                str(row[cid])
-                for cid in dim_col_ids
-                if row.get(cid) not in (None, "", "nan", "None") and pd.notna(row.get(cid))
-            ]
-            return vals[-1] if vals else "Total"
-
-        df_wide["dimension"] = df_wide.apply(_leaf_label, axis=1)
-
-        frames = []
-        for col in est_cols:
-            chunk = df_wide[["dimension", col["id"]]].copy()
-            chunk = chunk.rename(columns={col["id"]: "value"})
-            chunk["series"] = col["name"]
-            frames.append(chunk)
-
-        plot_df = pd.concat(frames, ignore_index=True).dropna(subset=["value"])
+        plot_df = wide_to_long(data, columns)
         if plot_df.empty:
-            return ""
+            return {}
 
-        x = x_field if x_field in plot_df.columns else "dimension"
-        c = color_field if color_field in plot_df.columns else "series"
+        def _col(field: str | None, fallback: str) -> str:
+            return field if field and field in plot_df.columns else fallback
 
-        if chart_type == "bar":
-            p = (
-                ggplot(plot_df, aes(x=x, y="value", fill=c))
-                + geom_bar(stat="identity", position=position_dodge())
-                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
-                + labs(x="", y="Value", fill="")
+        x = _col(x_field, plot_df.columns[0])
+        y = _col(y_field, "value")
+        facet = _col(facet_field, None) if facet_field else None
+
+        def _type(col: str) -> str:
+            s = plot_df[col]
+            if pd.api.types.is_numeric_dtype(s):
+                return "Q"
+            if hasattr(s, "cat") and s.cat.ordered:
+                return "O"
+            return "N"
+
+        def _sort(col: str) -> list | None:
+            s = plot_df[col]
+            if hasattr(s, "cat") and s.cat.ordered:
+                return list(s.cat.categories)
+            return None
+
+        def _enc_kwargs(col: str) -> dict:
+            sort_order = _sort(col)
+            return {"sort": sort_order} if sort_order is not None else {}
+
+        x_enc = alt.X(
+            f"{x}:{_type(x)}", title="",
+            axis=alt.Axis(labelAngle=-45),
+            **_enc_kwargs(x),
+        )
+        y_enc = alt.Y(f"{y}:{_type(y)}", title=y.replace("_", " ").title(), **_enc_kwargs(y))
+        tooltip_fields = list({x, y, color_field, facet} - {None})
+        tooltip = [f"{f}:{_type(f)}" for f in tooltip_fields if f in plot_df.columns]
+
+        encode_kwargs: dict = {"x": x_enc, "y": y_enc, "tooltip": tooltip}
+        if color_field and color_field in plot_df.columns:
+            encode_kwargs["color"] = alt.Color(
+                f"{color_field}:{_type(color_field)}", title="", **_enc_kwargs(color_field)
             )
-        elif chart_type == "line":
-            p = (
-                ggplot(plot_df, aes(x=x, y="value", color=c, group=c))
-                + geom_line()
-                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
-                + labs(x="", y="Value", color="")
+            if chart_type == "bar" and color_field != x:
+                encode_kwargs["xOffset"] = alt.XOffset(
+                    f"{color_field}:{_type(color_field)}", **_enc_kwargs(color_field)
+                )
+
+        mark = {"bar": "bar", "line": "line", "point": "point"}.get(chart_type, "bar")
+        mark_kwargs = {"point": True} if mark == "line" else {}
+
+        base = getattr(alt.Chart(plot_df), f"mark_{mark}")(**mark_kwargs).encode(
+            **encode_kwargs
+        )
+
+        if facet and facet in plot_df.columns:
+            facet_enc = alt.Facet(f"{facet}:{_type(facet)}", **_enc_kwargs(facet))
+            chart = base.properties(width=200, height=200).facet(
+                facet=facet_enc, columns=3,
             )
         else:
-            p = (
-                ggplot(plot_df, aes(x=x, y="value", color=c))
-                + geom_point()
-                + theme(axis_text_x=element_text(angle=45, hjust=1, size=8))
-                + labs(x="", y="Value", color="")
-            )
+            chart = base.properties(width="container", height=350)
 
-        buf = io.BytesIO()
-        p.save(buf, format="png", dpi=120, width=9, height=4, verbose=False)
-        buf.seek(0)
-        return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
+        return chart.to_dict()
     except Exception as exc:
         logger.error("Chart render failed: %s", exc)
-        return ""
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -607,18 +679,48 @@ def register_callbacks(app: dash.Dash) -> None:
         return table
 
     @app.callback(
-        Output("chart-image", "src"),
+        Output("chart-x-axis", "options"),
+        Output("chart-x-axis", "value"),
+        Output("chart-y-axis", "options"),
+        Output("chart-y-axis", "value"),
+        Output("chart-color-by", "options"),
+        Output("chart-color-by", "value"),
+        Output("chart-facet", "options"),
+        Output("chart-facet", "value"),
+        Input("wide-data-store", "data"),
+    )
+    def update_chart_axis_options(wide_data):
+        if not wide_data:
+            empty = []
+            return empty, None, empty, None, empty, None, empty, None
+
+        options = _chart_axis_options(wide_data)
+        vals = [o["value"] for o in options]
+
+        x_default = next((v for v in vals if v.startswith("dim_")), vals[0] if vals else None)
+        y_default = "value" if "value" in vals else None
+        color_default = "geography" if "geography" in vals else None
+        facet_default = None
+
+        return options, x_default, options, y_default, options, color_default, options, facet_default
+
+    @app.callback(
+        Output("chart-image", "spec"),
         Input("wide-data-store", "data"),
         Input("chart-type", "value"),
         Input("chart-x-axis", "value"),
+        Input("chart-y-axis", "value"),
         Input("chart-color-by", "value"),
+        Input("chart-facet", "value"),
     )
-    def update_chart(wide_data, chart_type, x_field, color_field):
+    def update_chart(wide_data, chart_type, x_field, y_field, color_field, facet_field):
         return render_chart_from_wide(
             wide_data,
             chart_type or "bar",
-            x_field or "dimension",
-            color_field or "series",
+            x_field,
+            y_field or "value",
+            color_field or None,
+            facet_field or None,
         )
 
     @app.callback(

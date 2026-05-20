@@ -187,8 +187,43 @@ def build_wide_table(
 
     pct_prefix = "% " if is_pct else ""
 
+    # ---------------------------------------------------------------------------
+    # Leaf detection and category ordering — derived from dt.dims which still
+    # carries the ':' suffix that marks subtotal rows.
+    # ---------------------------------------------------------------------------
+    raw_dims = dt.dims  # Categorical columns; subtotal values end with ':'
+
+    def _is_leaf_var(raw_row: pd.Series) -> bool:
+        non_empty = [str(v) for v in raw_row if str(v) != ""]
+        return bool(non_empty) and not non_empty[-1].endswith(":")
+
+    display_dims_map = raw_dims.apply(
+        lambda col: col.astype(str).str.rstrip(":").str.strip()
+    )
+
+    leaf_map: dict[tuple, bool] = {}
+    for var_code in raw_dims.index:
+        key = tuple(display_dims_map.loc[var_code])
+        leaf_map[key] = leaf_map.get(key, False) or _is_leaf_var(raw_dims.loc[var_code])
+
+    # Ordered category lists for each dim (strip ':', drop '', preserve Census order)
+    dim_categories: dict[str, list[str]] = {}
+    for col_name in raw_dims.columns:
+        cats: list[str] = []
+        for cat in raw_dims[col_name].cat.categories:
+            stripped = str(cat).rstrip(":").strip()
+            if stripped and stripped not in cats:
+                cats.append(stripped)
+        dim_categories[col_name] = cats
+
+    # ---------------------------------------------------------------------------
+
     columns: list[dict] = [
-        {"name": n.replace("_", " ").title(), "id": f"__dim_{i}__"}
+        {
+            "name": n.replace("_", " ").title(),
+            "id": f"__dim_{i}__",
+            "categories": dim_categories.get(n, []),
+        }
         for i, n in enumerate(dim_names)
     ]
     data_cols: list[tuple[tuple, str]] = []
@@ -206,10 +241,12 @@ def build_wide_table(
 
     data: list[dict] = []
     for idx, row in wide.iterrows():
+        key = tuple(str(v) for v in idx) if isinstance(idx, tuple) else (str(idx),)
         if isinstance(idx, tuple):
-            record: dict = {f"__dim_{i}__": v for i, v in enumerate(idx)}
+            record: dict = {f"__dim_{i}__": str(v) for i, v in enumerate(idx)}
         else:
-            record = {"__dim_0__": idx}
+            record = {"__dim_0__": str(idx)}
+        record["__is_leaf__"] = leaf_map.get(key, True)
         for tup, col_id in data_cols:
             val = row[tup]
             record[col_id] = round(float(val), 2) if pd.notna(val) else None
