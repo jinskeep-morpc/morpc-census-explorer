@@ -236,7 +236,8 @@ def build_wide_table(
         vtype = col_map.get("value_type", "")
         vtype_suffix = " [MOE]" if (show_moe and vtype == "moe") else ""
         label = f"{pct_prefix}{name} ({year}){vtype_suffix}"
-        col_id = "__".join(str(v) for v in tup)
+        geoidfq = col_map.get("geoidfq") or str(len(data_cols))
+        col_id = f"{geoidfq}__{year}__{vtype}"
         columns.append({"name": label, "id": col_id})
         data_cols.append((tup, col_id))
 

@@ -304,6 +304,15 @@ class TestBuildWideTable:
         dim_cols = [c for c in cols if c["id"].startswith("__dim_")]
         assert len(dim_cols) >= 1
 
+    def test_value_column_ids_contain_no_spaces_or_slashes(self):
+        # Regression: morpc-census 0.2.0 added extra MultiIndex levels that introduced
+        # spaces and slashes into column IDs, breaking Dash DataTable rendering.
+        _, cols = build_wide_table(self._long(), "estimate", False)
+        value_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        for col in value_cols:
+            assert " " not in col["id"], f"space in col id: {col['id']!r}"
+            assert "/" not in col["id"], f"slash in col id: {col['id']!r}"
+
     def test_estimate_filter(self):
         data, cols = build_wide_table(self._long(), "estimate", False)
         data_col_ids = {c["id"] for c in cols if not c["id"].startswith("__dim_")}
