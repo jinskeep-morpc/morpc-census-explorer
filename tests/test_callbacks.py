@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from app.callbacks import (
+    _build_chart_title,
     _chart_axis_options_from_long,
     _friendly_error,
     apply_dim_filters,
@@ -509,3 +510,33 @@ class TestRenderChartFromLong:
         chart_df = long_to_chart_df(_make_multi_dim_long())
         result = render_chart_from_long(chart_df, "bar", x_field="nonexistent", color_field="also_bad")
         assert isinstance(result, dict)
+
+    def test_title_appears_in_spec(self):
+        chart_df = long_to_chart_df(_make_multi_dim_long())
+        result = render_chart_from_long(chart_df, "bar", title="Test Title", subtitle="Source: X")
+        spec_str = str(result)
+        assert "Test Title" in spec_str
+
+
+# ---------------------------------------------------------------------------
+# _build_chart_title
+# ---------------------------------------------------------------------------
+
+class TestBuildChartTitle:
+    def test_all_parts(self):
+        result = _build_chart_title("Sex by Age", [{"scope": "Franklin County"}], [2023])
+        assert "Sex by Age" in result
+        assert "Franklin County" in result
+        assert "2023" in result
+
+    def test_multi_vintage_range(self):
+        result = _build_chart_title("Sex by Age", [{"scope": "Franklin County"}], [2021, 2022, 2023])
+        assert "2021" in result and "2023" in result
+
+    def test_no_group(self):
+        result = _build_chart_title(None, [{"scope": "Franklin County"}], [2023])
+        assert "Franklin County" in result
+
+    def test_empty_returns_empty_string(self):
+        result = _build_chart_title(None, None, None)
+        assert result == ""

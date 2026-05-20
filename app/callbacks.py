@@ -484,6 +484,27 @@ def _chart_axis_options_from_long(chart_df: pd.DataFrame) -> list[dict]:
     return options
 
 
+def _build_chart_title(
+    group_description: str | None,
+    geo_list: list[dict] | None,
+    vintages: list[int] | None,
+) -> str:
+    """Build a human-readable chart title from the current selections."""
+    parts = []
+    if group_description:
+        parts.append(group_description)
+    if geo_list:
+        geo_names = [g.get("scope", "") for g in geo_list]
+        parts.append(", ".join(n for n in geo_names if n))
+    if vintages:
+        sorted_v = sorted(vintages)
+        if len(sorted_v) == 1:
+            parts.append(f"({sorted_v[0]})")
+        else:
+            parts.append(f"({sorted_v[0]}–{sorted_v[-1]})")
+    return " — ".join(p for p in parts if p)
+
+
 def render_chart_from_long(
     chart_df: pd.DataFrame,
     chart_type: str = "bar",
@@ -491,6 +512,10 @@ def render_chart_from_long(
     y_field: str = "value",
     color_field: str | None = "geography",
     facet_field: str | None = None,
+    *,
+    title: str = "",
+    subtitle: str = "",
+    y_label: str = "",
 ) -> dict:
     """Render a Vega-Lite spec dict from a chart-ready long DataFrame."""
     if chart_df.empty:
@@ -522,7 +547,8 @@ def render_chart_from_long(
             return {"sort": sort_order} if sort_order is not None else {}
 
         x_enc = alt.X(f"{x}:{_type(x)}", title="", axis=alt.Axis(labelAngle=-45), **_enc_kwargs(x))
-        y_enc = alt.Y(f"{y}:{_type(y)}", title=y.replace("_", " ").title(), **_enc_kwargs(y))
+        y_title = y_label if y_label else (y.replace("_", " ").title() if y != "value" else "Estimate")
+        y_enc = alt.Y(f"{y}:{_type(y)}", title=y_title, **_enc_kwargs(y))
         tooltip_fields = list({x, y, color_field, facet} - {None})
         tooltip = [f"{f}:{_type(f)}" for f in tooltip_fields if f in chart_df.columns]
 
@@ -540,12 +566,20 @@ def render_chart_from_long(
         mark_kwargs = {"point": True} if mark == "line" else {}
         base = getattr(alt.Chart(chart_df), f"mark_{mark}")(**mark_kwargs).encode(**encode_kwargs)
 
+        title_props: dict = {}
+        if title:
+            title_props["title"] = alt.TitleParams(text=title, subtitle=subtitle) if subtitle else title
+        elif subtitle:
+            title_props["title"] = alt.TitleParams(text="", subtitle=subtitle)
+
         if facet and facet in chart_df.columns:
             chart = base.properties(width=200, height=200).facet(
                 facet=alt.Facet(f"{facet}:{_type(facet)}", **_enc_kwargs(facet)), columns=3
             )
+            if title_props:
+                chart = chart.properties(**title_props)
         else:
-            chart = base.properties(width="container", height=350)
+            chart = base.properties(width="container", height=350, **title_props)
 
         return chart.to_dict()
     except Exception as exc:
@@ -858,12 +892,31 @@ def register_callbacks(app: dash.Dash) -> None:
         Input("chart-facet", "value"),
         State("dropped-dims-store", "data"),
         State("value-mode-radio", "value"),
+        State("group-dropdown", "value"),
+        State("group-dropdown", "options"),
+        State("vintage-dropdown", "value"),
+        State("geo-list-store", "data"),
     )
-    def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field, dropped_dims, value_mode):
+    def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field,
+                     dropped_dims, value_mode, group_code, group_options, vintages, geo_list):
         if not store_data:
             return {}
         long_df = deserialise_long(store_data)
         chart_df = long_to_chart_df(long_df, value_mode or "estimate", dropped_dims)
+
+        # Build title from group label
+        group_desc = None
+        if group_code and group_options:
+            opt = next((o for o in group_options if o["value"] == group_code), None)
+            if opt:
+                # Label format: "B01001 — Sex by Age"
+                label = opt["label"]
+                group_desc = label.split(" — ", 1)[-1] if " — " in label else label
+
+        title = _build_chart_title(group_desc, geo_list, vintages)
+        subtitle = "Source: U.S. Census Bureau, American Community Survey 5-Year Estimates"
+        y_axis_label = "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate"
+
         return render_chart_from_long(
             chart_df,
             chart_type or "bar",
@@ -871,6 +924,9 @@ def register_callbacks(app: dash.Dash) -> None:
             y_field or "value",
             color_field or None,
             facet_field or None,
+            title=title,
+            subtitle=subtitle,
+            y_label=y_axis_label,
         )
 
     @app.callback(
