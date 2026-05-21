@@ -82,12 +82,23 @@ def scope_label(key: str) -> str:
 
 @lru_cache(maxsize=1)
 def scope_options() -> list[dict]:
-    """All named scopes from morpc.SCOPES, sorted alphabetically."""
+    """All named scopes from morpc.SCOPES, ordered MORPC-relevant first.
+
+    Order: Regions → Counties (alphabetical) → Metro Areas → States → National.
+    """
+    _TYPE_ORDER = {"Region": 0, "County": 1, "Metro Area": 2, "State": 3, "National": 4}
+
+    def _sort_key(item: dict) -> tuple:
+        label = item["label"]
+        prefix = label.split(":")[0].strip() if ":" in label else "National"
+        return (_TYPE_ORDER.get(prefix, 99), label)
+
     try:
         scopes = _scopes_map()
         if not scopes:
             raise ValueError("empty")
-        return [{"label": _scope_label(k, scopes[k]), "value": k} for k in sorted(scopes.keys())]
+        opts = [{"label": _scope_label(k, scopes[k]), "value": k} for k in scopes]
+        return sorted(opts, key=_sort_key)
     except Exception:
         logger.warning("Could not load scope options from morpc.")
         return []
