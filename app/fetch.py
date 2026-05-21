@@ -136,27 +136,15 @@ def build_wide_table(
     show_moe: bool = False,
     dropped_dims: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Pivot a long DataFrame and flatten its MultiIndex for dash_table.DataTable.
+    """Pivot a long DataFrame for dash_table.DataTable with multi-level headers.
 
-    Parameters
-    ----------
-    long_df:
-        Concatenated output of ``CensusAPI.long`` across one or more vintages.
-    value_mode:
-        ``"estimate"`` uses ``DimensionTable.wide()``;
-        ``"percent"`` uses ``DimensionTable.percent()``.
-    show_moe:
-        When True, include the MOE column alongside the primary value column.
-    dropped_dims:
-        List of dim column names (e.g. ``["dim_0"]``) to drop before pivoting.
+    Dim columns use the dim name as their ID (e.g. "Sex", "Age").
+    Value columns use "{geoidfq}__{year}__{vtype}" as their ID.
+    Column names are arrays so the table can use merge_duplicate_headers=True.
 
-    Returns
-    -------
-    (data, columns)
-        Ready to pass directly to ``dash_table.DataTable(data=..., columns=...)``.
+    Returns (data, columns) ready for dash_table.DataTable.
     """
     dt = DimensionTable(long_df)
-    dim_name_map = get_concept_dims_from_long(long_df)
     if dropped_dims:
         for dim in dropped_dims:
             method = _choose_drop_method(dt, dim)
@@ -164,10 +152,9 @@ def build_wide_table(
                 dt = dt.drop(dim, method=method)
             except (IndexError, ValueError, KeyError) as exc:
                 logger.warning("DimensionTable.drop(%s, method=%s) failed: %s — ignoring", dim, method, exc)
-    is_pct = value_mode == "percent"
 
     try:
-        wide = dt.percent() if is_pct else dt.wide()
+        wide = dt.percent() if value_mode == "percent" else dt.wide()
     except Exception as exc:
         logger.warning("Table pivot failed (%s): %s", value_mode, exc)
         return [], []
@@ -179,78 +166,37 @@ def build_wide_table(
     if wide.empty:
         return [], []
 
-    # Resolve dimension-index names
-    index = wide.index
-    if isinstance(index, pd.MultiIndex):
-        dim_names = list(index.names)
-    else:
-        dim_names = [index.name or "dim_0"]
+    dim_names = list(wide.index.names) if isinstance(wide.index, pd.MultiIndex) else [wide.index.name or "dim_0"]
+    dim_name_map = get_concept_dims_from_long(long_df)
+    pct_prefix = "% " if value_mode == "percent" else ""
 
-    pct_prefix = "% " if is_pct else ""
+    columns: list[dict] = []
+    for dim in dim_names:
+        display = dim_name_map.get(dim, dim.replace("_", " ").title())
+        name_levels: list = [display, "", ""] if show_moe else [display, ""]
+        columns.append({"name": name_levels, "id": dim})
 
-    # ---------------------------------------------------------------------------
-    # Leaf detection and category ordering — derived from dt.dims which still
-    # carries the ':' suffix that marks subtotal rows.
-    # ---------------------------------------------------------------------------
-    raw_dims = dt.dims  # Categorical columns; subtotal values end with ':'
-
-    def _is_leaf_var(raw_row: pd.Series) -> bool:
-        non_empty = [str(v) for v in raw_row if str(v) != ""]
-        return bool(non_empty) and not non_empty[-1].endswith(":")
-
-    display_dims_map = raw_dims.apply(
-        lambda col: col.astype(str).str.rstrip(":").str.strip()
-    )
-
-    leaf_map: dict[tuple, bool] = {}
-    for var_code in raw_dims.index:
-        key = tuple(display_dims_map.loc[var_code])
-        leaf_map[key] = leaf_map.get(key, False) or _is_leaf_var(raw_dims.loc[var_code])
-
-    # Ordered category lists for each dim (strip ':', drop '', preserve Census order)
-    dim_categories: dict[str, list[str]] = {}
-    for col_name in raw_dims.columns:
-        cats: list[str] = []
-        for cat in raw_dims[col_name].cat.categories:
-            stripped = str(cat).rstrip(":").strip()
-            if stripped and stripped not in cats:
-                cats.append(stripped)
-        dim_categories[col_name] = cats
-
-    # ---------------------------------------------------------------------------
-
-    columns: list[dict] = [
-        {
-            "name": dim_name_map.get(n, n.replace("_", " ").title()),
-            "id": f"__dim_{i}__",
-            "categories": dim_categories.get(n, []),
-        }
-        for i, n in enumerate(dim_names)
-    ]
-    data_cols: list[tuple[tuple, str]] = []
-
-    for tup in wide.columns:
-        col_map = dict(zip(wide.columns.names, tup))
-        name = col_map.get("name") or col_map.get("geoidfq", "")
-        year = col_map.get("reference_period", "")
+    data_cols: list[tuple] = []
+    for col_tup in wide.columns:
+        col_map = dict(zip(wide.columns.names, col_tup))
+        geo_name = col_map.get("name") or col_map.get("geoidfq", "")
+        year = str(col_map.get("reference_period", ""))
         vtype = col_map.get("value_type", "")
-        vtype_suffix = " [MOE]" if (show_moe and vtype == "moe") else ""
-        label = f"{pct_prefix}{name} ({year}){vtype_suffix}"
         geoidfq = col_map.get("geoidfq") or str(len(data_cols))
         col_id = f"{geoidfq}__{year}__{vtype}"
-        columns.append({"name": label, "id": col_id})
-        data_cols.append((tup, col_id))
+        vtype_label = "MOE" if vtype == "moe" else "Estimate"
+        name_levels = [f"{pct_prefix}{geo_name}", year, vtype_label] if show_moe else [f"{pct_prefix}{geo_name}", year]
+        columns.append({"name": name_levels, "id": col_id})
+        data_cols.append((col_tup, col_id))
 
     data: list[dict] = []
     for idx, row in wide.iterrows():
-        key = tuple(str(v) for v in idx) if isinstance(idx, tuple) else (str(idx),)
         if isinstance(idx, tuple):
-            record: dict = {f"__dim_{i}__": str(v) for i, v in enumerate(idx)}
+            record: dict = {dim: str(val).rstrip(":").strip() for dim, val in zip(dim_names, idx)}
         else:
-            record = {"__dim_0__": str(idx)}
-        record["__is_leaf__"] = leaf_map.get(key, True)
-        for tup, col_id in data_cols:
-            val = row[tup]
+            record = {dim_names[0]: str(idx).rstrip(":").strip()}
+        for col_tup, col_id in data_cols:
+            val = row[col_tup]
             record[col_id] = round(float(val), 2) if pd.notna(val) else None
         data.append(record)
 

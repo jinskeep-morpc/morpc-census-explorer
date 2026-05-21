@@ -301,21 +301,21 @@ class TestBuildWideTable:
 
     def test_columns_include_dim_column(self):
         _, cols = build_wide_table(self._long(), "estimate", False)
-        dim_cols = [c for c in cols if c["id"].startswith("__dim_")]
+        dim_cols = [c for c in cols if "__" not in c["id"]]
         assert len(dim_cols) >= 1
 
     def test_value_column_ids_contain_no_spaces_or_slashes(self):
         # Regression: morpc-census 0.2.0 added extra MultiIndex levels that introduced
         # spaces and slashes into column IDs, breaking Dash DataTable rendering.
         _, cols = build_wide_table(self._long(), "estimate", False)
-        value_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        value_cols = [c for c in cols if "__" in c["id"]]
         for col in value_cols:
             assert " " not in col["id"], f"space in col id: {col['id']!r}"
             assert "/" not in col["id"], f"slash in col id: {col['id']!r}"
 
     def test_estimate_filter(self):
         data, cols = build_wide_table(self._long(), "estimate", False)
-        data_col_ids = {c["id"] for c in cols if not c["id"].startswith("__dim_")}
+        data_col_ids = {c["id"] for c in cols if "__" in c["id"]}
         for record in data:
             for col_id in data_col_ids:
                 assert col_id in record
@@ -333,8 +333,8 @@ class TestBuildWideTable:
         df = _make_multi_dim_long()
         _, cols_nodrop = build_wide_table(df, "estimate", False, None)
         _, cols_drop = build_wide_table(df, "estimate", False, ["Age"])
-        n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
-        n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
+        n_dim_nodrop = sum(1 for c in cols_nodrop if "__" not in c["id"])
+        n_dim_drop = sum(1 for c in cols_drop if "__" not in c["id"])
         assert n_dim_drop < n_dim_nodrop
 
     def test_drop_leaf_dim_uses_summarize_and_produces_data(self):
@@ -452,5 +452,9 @@ class TestComputeTable:
         store = serialise_long(long)
         data, cols, style = compute_table(store, "estimate", True)
         assert len(data) > 0
-        moe_cols = [c for c in cols if "[MOE]" in c["name"]]
+        moe_cols = [
+            c for c in cols
+            if (isinstance(c["name"], list) and "MOE" in c["name"])
+            or (isinstance(c["name"], str) and "[MOE]" in c["name"])
+        ]
         assert len(moe_cols) > 0
