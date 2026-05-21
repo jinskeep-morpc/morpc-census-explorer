@@ -8,7 +8,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "morpc>=0.5.4",
-    "morpc-census>=0.2.0",
+    "morpc-census>=0.2.1",
     "dash>=2.14",
     "dash-bootstrap-components>=1.5",
     "numpy>=1.24",
