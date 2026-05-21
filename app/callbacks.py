@@ -24,7 +24,7 @@ from app.fetch import (
     get_droppable_dims,
     serialise_long,
 )
-from morpc_census.api import DimensionTable
+from morpc_census.api import DimensionTable, get_concept_dims_from_long
 from app.selectors import group_options_for_topic, scope_label
 
 
@@ -119,8 +119,7 @@ def compute_dim_controls(
     if not droppable:
         return [], {"display": "none"}
     dropped = set(dropped_dims or [])
-    dt = DimensionTable(long_df)
-    dim_name_map = dt.concept_dims
+    dim_name_map = get_concept_dims_from_long(long_df)
     buttons = [
         dbc.Button(
             f"Drop {dim_name_map.get(dim, dim.replace('_', ' ').title())}",
@@ -160,27 +159,23 @@ def compute_dim_filter_controls(wide_data: dict | None) -> list:
         return []
     data = wide_data.get("data", [])
     columns = wide_data.get("columns", [])
-    dim_cols = [c for c in columns if c["id"].startswith("__dim_")]
+    dim_cols = [c for c in columns if "__" not in c["id"]]
     if not dim_cols:
         return []
     controls = []
     for col in dim_cols:
-        col_id = col["id"]       # "__dim_0__"
-        col_name = col_id[2:-2]  # "dim_0"
+        col_id = col["id"]   # e.g. "Sex" or "dim_0"
         present = {str(row[col_id]) for row in data if row.get(col_id) not in (None, "")}
-        ordered_cats = col.get("categories", [])
-        if ordered_cats:
-            unique_vals = [c for c in ordered_cats if c in present]
-        else:
-            unique_vals = sorted(present)
+        unique_vals = sorted(present)
         if len(unique_vals) <= 1:
             continue
+        label = col["name"][0] if isinstance(col["name"], list) else col["name"]
         controls.append(
             html.Span(
                 [
-                    dbc.Label(col["name"], className="small me-1 mb-0 fw-semibold"),
+                    dbc.Label(label, className="small me-1 mb-0 fw-semibold"),
                     dcc.Dropdown(
-                        id={"type": "dim-filter", "index": col_name},
+                        id={"type": "dim-filter", "index": col_id},
                         options=[{"label": v, "value": v} for v in unique_vals],
                         value=None,
                         multi=True,
@@ -213,8 +208,7 @@ def apply_dim_filters(
     columns = list(wide_data.get("columns", []))
     for dim_name, selected_vals in (filters or {}).items():
         if selected_vals:
-            col_id = f"__{dim_name}__"
-            data = [row for row in data if row.get(col_id) in selected_vals]
+            data = [row for row in data if row.get(dim_name) in selected_vals]
     return data, columns
 
 
@@ -367,60 +361,42 @@ def wide_to_long(data: list[dict], columns: list[dict]) -> pd.DataFrame:
     by ``build_wide_table``, with a fallback heuristic for older data.
     """
     df_wide = pd.DataFrame(data)
-    dim_cols = sorted(
-        [c for c in columns if c["id"].startswith("__dim_")],
-        key=lambda c: c["id"],
-    )
-    est_cols = [c for c in columns if not c["id"].startswith("__dim_") and "[MOE]" not in c["name"]]
+    dim_cols = [c for c in columns if "__" not in c["id"]]
+    est_cols = [
+        c for c in columns
+        if "__" in c["id"] and not (
+            isinstance(c["name"], list) and c["name"][-1] == "MOE"
+            or isinstance(c["name"], str) and "[MOE]" in c["name"]
+        )
+    ]
 
     if df_wide.empty or not est_cols:
         return pd.DataFrame()
 
-    # Filter to leaf rows only
-    if "__is_leaf__" in df_wide.columns:
-        df_wide = df_wide[df_wide["__is_leaf__"]].reset_index(drop=True)
-    else:
-        # Fallback: heuristic for data written before __is_leaf__ was added
-        dim_col_ids = [c["id"] for c in dim_cols]
-        if len(dim_col_ids) > 1:
-            higher_ids = dim_col_ids[1:]
+    # Filter to leaf rows only — exclude rows where any dim value is empty
+    dim_col_ids = [c["id"] for c in dim_cols]
+    if dim_col_ids:
+        def _has_empty_dim(row: pd.Series) -> bool:
+            return any(row.get(cid) in (None, "", "nan", "None") for cid in dim_col_ids)
 
-            def _is_total(row: pd.Series) -> bool:
-                return all(
-                    row.get(cid) in (None, "", "nan", "None") or pd.isna(row.get(cid))
-                    for cid in higher_ids
-                )
-
-            df_wide = df_wide[~df_wide.apply(_is_total, axis=1)].reset_index(drop=True)
+        df_wide = df_wide[~df_wide.apply(_has_empty_dim, axis=1)].reset_index(drop=True)
 
     if df_wide.empty:
         return pd.DataFrame()
 
-    dim_col_ids = [c["id"] for c in dim_cols]
-    dim_rename = {c["id"]: c["id"].strip("_") for c in dim_cols}  # __dim_0__ → dim_0
-
     frames = []
     for col in est_cols:
         parts = col["id"].rsplit("__", 3)
-        geography = parts[0] if len(parts) == 4 else col["name"]
+        geography = parts[0] if len(parts) == 4 else (col["name"][0] if isinstance(col["name"], list) else col["name"])
         year = int(parts[1]) if len(parts) == 4 and parts[1].isdigit() else None
 
         chunk = df_wide[dim_col_ids + [col["id"]]].copy()
-        chunk = chunk.rename(columns={**dim_rename, col["id"]: "value"})
+        chunk = chunk.rename(columns={col["id"]: "value"})
         chunk["geography"] = geography
         chunk["year"] = year
         frames.append(chunk)
 
     long_df = pd.concat(frames, ignore_index=True).dropna(subset=["value"])
-
-    # Apply ordered Categorical dtype to each dim column using Census-defined order
-    for dc in dim_cols:
-        clean_name = dc["id"].strip("_")  # dim_0, dim_1, ...
-        cats = dc.get("categories", [])
-        if clean_name in long_df.columns and cats:
-            long_df[clean_name] = pd.Categorical(
-                long_df[clean_name], categories=cats, ordered=True
-            )
 
     return long_df
 
@@ -602,11 +578,11 @@ def render_chart_from_long(
 def _chart_axis_options(wide_data: dict) -> list[dict]:
     """Return dropdown options derived from wide_data columns."""
     columns = wide_data.get("columns", [])
-    dim_cols = sorted(
-        [c for c in columns if c["id"].startswith("__dim_")],
-        key=lambda c: c["id"],
-    )
-    options = [{"label": c["name"], "value": c["id"].strip("_")} for c in dim_cols]
+    dim_cols = [c for c in columns if "__" not in c["id"]]
+    options = [
+        {"label": (c["name"][0] if isinstance(c["name"], list) else c["name"]), "value": c["id"]}
+        for c in dim_cols
+    ]
     options += [
         {"label": "Geography", "value": "geography"},
         {"label": "Year", "value": "year"},
@@ -860,6 +836,7 @@ def register_callbacks(app: dash.Dash) -> None:
         table = dash_table.DataTable(
             data=data,
             columns=columns,
+            merge_duplicate_headers=True,
             page_size=15,
             sort_action="native",
             filter_action="none",

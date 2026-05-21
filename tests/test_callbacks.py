@@ -328,15 +328,20 @@ class TestApplyDimFilters:
     def test_filter_reduces_rows(self):
         wide = _make_multi_dim_wide()
         all_data, cols = apply_dim_filters(wide, {})
-        # Get a dim_0 value that exists
-        dim0_vals = list({row.get("__dim_0__") for row in wide["data"] if row.get("__dim_0__")})
-        if dim0_vals:
-            filtered, _ = apply_dim_filters(wide, {"dim_0": [dim0_vals[0]]})
-            assert len(filtered) <= len(all_data)
+        # Get the first dim col ID dynamically
+        dim_cols = [c for c in wide["columns"] if "__" not in c["id"]]
+        first_dim_id = dim_cols[0]["id"] if dim_cols else None
+        if first_dim_id:
+            dim_vals = list({row.get(first_dim_id) for row in wide["data"] if row.get(first_dim_id)})
+            if dim_vals:
+                filtered, _ = apply_dim_filters(wide, {first_dim_id: [dim_vals[0]]})
+                assert len(filtered) <= len(all_data)
 
     def test_filter_by_nonexistent_value_returns_empty(self):
         wide = _make_multi_dim_wide()
-        data, _ = apply_dim_filters(wide, {"dim_0": ["__does_not_exist__"]})
+        dim_cols = [c for c in wide["columns"] if "__" not in c["id"]]
+        first_dim_id = dim_cols[0]["id"] if dim_cols else "dim_0"
+        data, _ = apply_dim_filters(wide, {first_dim_id: ["__does_not_exist__"]})
         assert data == []
 
 
