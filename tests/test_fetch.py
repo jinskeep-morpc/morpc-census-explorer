@@ -240,34 +240,33 @@ from morpc_census.api import DimensionTable as _DT
 
 class TestChooseDropMethod:
     def test_root_dim_uses_aggregate(self):
-        # "Total" dim has no empty rows → aggregate
+        # dim_0 (Total) has no empty rows → aggregate
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "Total") == "aggregate"
+        assert _choose_drop_method(dt, "dim_0") == "aggregate"
 
     def test_sex_dim_uses_aggregate(self):
-        # Sex ("Dim 1"): its only empty row is the grand total → aggregate
+        # dim_1 (Sex): its only empty row is the grand total → aggregate
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "Dim 1") == "aggregate"
+        assert _choose_drop_method(dt, "dim_1") == "aggregate"
 
     def test_age_dim_uses_summarize(self):
-        # Leaf dim: "" rows are the sex-subtotals (Male:, Female:) — partial subtotals exist
+        # dim_2 (Age): "" rows are the sex-subtotals (Male, Female) — partial subtotals exist
         dt = _DT(_make_b01001_long())
-        leaf_dim = dt.dims.columns[-1]  # "Under 5 years" in this fixture
-        assert _choose_drop_method(dt, leaf_dim) == "summarize"
+        assert _choose_drop_method(dt, "dim_2") == "summarize"
 
     def test_nonexistent_dim_uses_aggregate(self):
         dt = _DT(_make_b01001_long())
         assert _choose_drop_method(dt, "nonexistent_dim") == "aggregate"
 
     def test_simple_fixture_leaf_dim_uses_summarize(self):
-        # "Age" is the leaf dim in the simple fixture → partial subtotals exist
+        # dim_1 is the leaf (age) dim — has '' rows for Male/Female subtotals
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "Age") == "summarize"
+        assert _choose_drop_method(dt, "dim_1") == "summarize"
 
     def test_simple_fixture_root_dim_uses_aggregate(self):
-        # "Sex" has no empty rows in the simple fixture → aggregate
+        # dim_0 is the root (sex) dim — no '' rows → aggregate
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "Sex") == "aggregate"
+        assert _choose_drop_method(dt, "dim_0") == "aggregate"
 
 
 # ---------------------------------------------------------------------------
@@ -323,28 +322,28 @@ class TestBuildWideTable:
     def test_drop_reduces_dim_columns(self):
         df = _make_multi_dim_long()
         _, cols_nodrop = build_wide_table(df, "estimate", False, None)
-        _, cols_drop = build_wide_table(df, "estimate", False, ["Age"])
+        _, cols_drop = build_wide_table(df, "estimate", False, ["dim_1"])
         n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
         n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
         assert n_dim_drop < n_dim_nodrop
 
     def test_drop_leaf_dim_uses_summarize_and_produces_data(self):
-        # "Age" has '' rows → summarize → keeps subtotal rows (Male/Female)
+        # dim_1 (age) has '' rows → summarize → keeps subtotal rows (Male/Female)
         df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["Age"])
+        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
         assert len(data) > 0 and len(cols) > 0
 
     def test_drop_root_dim_uses_aggregate_and_produces_data(self):
-        # "Sex" has no '' rows → aggregate → sums across Sex to get age-only totals
+        # dim_0 (sex) has no '' rows → aggregate → sums across sex to get age-only totals
         df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["Sex"])
+        data, cols = build_wide_table(df, "estimate", False, ["dim_0"])
         assert len(data) > 0 and len(cols) > 0
 
     def test_drop_sex_in_b01001_structure_returns_age_rows(self):
-        # Real B01001-style: dropping Sex ("Dim 1") should aggregate Male+Female per age,
+        # Real B01001-style: dropping dim_1 (sex) should aggregate Male+Female per age,
         # NOT return only the grand total row.
         df = _make_b01001_long()
-        data, cols = build_wide_table(df, "estimate", False, ["Dim 1"])
+        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
         # Should have an "Under 5 years" row (not just grand total)
         assert len(data) > 1, "Expected age rows, got only grand total"
 
