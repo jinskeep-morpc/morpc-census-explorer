@@ -146,7 +146,7 @@ def make_layout() -> dbc.Container:
                                         html.Hr(className="my-2"),
 
                                         # Display options
-                                        dbc.Label("View", className="fw-semibold mb-1 small"),
+                                        dbc.Label("Table view", className="fw-semibold mb-1 small"),
                                         dbc.RadioItems(
                                             id="value-mode-radio",
                                             options=[
@@ -168,6 +168,18 @@ def make_layout() -> dbc.Container:
 
                                         # Chart options
                                         dbc.Label("Chart", className="fw-semibold mb-1 small"),
+                                        dbc.Label("Chart type", className="small mb-0"),
+                                        dcc.Dropdown(
+                                            id="chart-type",
+                                            options=[
+                                                {"label": "Bar", "value": "bar"},
+                                                {"label": "Line", "value": "line"},
+                                                {"label": "Point", "value": "point"},
+                                            ],
+                                            value="bar",
+                                            clearable=False,
+                                            className="mb-1",
+                                        ),
                                         dbc.Row(
                                             [
                                                 dbc.Col(
@@ -223,40 +235,47 @@ def make_layout() -> dbc.Container:
                                             ],
                                             className="mb-1 g-1",
                                         ),
-                                        dbc.Label("Chart type", className="small mb-0"),
-                                        dcc.Dropdown(
-                                            id="chart-type",
-                                            options=[
-                                                {"label": "Bar", "value": "bar"},
-                                                {"label": "Line", "value": "line"},
-                                                {"label": "Point", "value": "point"},
-                                            ],
-                                            value="bar",
-                                            clearable=False,
-                                        ),
 
                                         html.Hr(className="my-2"),
 
                                         # Export
                                         dbc.Label("Export", className="fw-semibold mb-1 small"),
-                                        dbc.ButtonGroup(
+                                        dbc.Row(
                                             [
-                                                dbc.Button(
-                                                    "Frictionless",
-                                                    id="export-frictionless-btn",
-                                                    color="secondary",
-                                                    outline=True,
-                                                    size="sm",
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Button(
+                                                            "Frictionless",
+                                                            id="export-frictionless-btn",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            size="sm",
+                                                            className="w-100 mb-1",
+                                                        ),
+                                                        html.Small(
+                                                            "CSV + metadata descriptor (datapackage.json)",
+                                                            className="text-muted",
+                                                        ),
+                                                    ]
                                                 ),
-                                                dbc.Button(
-                                                    "Excel (.xlsx)",
-                                                    id="export-excel-btn",
-                                                    color="secondary",
-                                                    outline=True,
-                                                    size="sm",
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Button(
+                                                            "Excel (.xlsx)",
+                                                            id="export-excel-btn",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            size="sm",
+                                                            className="w-100 mb-1",
+                                                        ),
+                                                        html.Small(
+                                                            "Workbook with data table and chart",
+                                                            className="text-muted",
+                                                        ),
+                                                    ]
                                                 ),
                                             ],
-                                            className="w-100 mb-2",
+                                            className="mb-2 g-2",
                                         ),
                                     ],
                                     className="p-2",

@@ -1,3 +1,14 @@
+## UI polish: scope ordering, sumlevel filter, label/layout updates
+
+Five sidebar UI improvements:
+1. `scope_options()` now sorts by category: Region → CBSA → Counties → States → US (added `_scope_sort_key` helper in `selectors.py`).
+2. `sumlevel_options()` filters out MORPC codes (those starting with "M") — only Census standard sumlevels are shown.
+3. "View" section label renamed to "Table view" in `layout.py`.
+4. Chart section reordered: Chart Type dropdown now appears above the X/Y/Color/Facet variable selectors.
+5. Export section replaced `dbc.ButtonGroup` with a two-column layout; each button now has a short description beneath it.
+
+---
+
 ## Fix: Sidebar dropdown z-index / overflow clipping (issue #25)
 
 Removed `overflowY: auto` and `maxHeight` from the sidebar sticky wrapper in `app/layout.py`. These CSS properties created a block formatting context that clipped absolutely-positioned dropdown menus, causing them to render behind the DataTable and Vega chart. Also added `z-index: 9999` rules in `app/assets/custom.css` targeting `.Select-menu-outer` and `.VirtualizedSelectMenu` to ensure menus stack above sibling-column content regardless of stacking context.
