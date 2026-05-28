@@ -395,7 +395,7 @@ def wide_to_long(data: list[dict], columns: list[dict]) -> pd.DataFrame:
         return pd.DataFrame()
 
     dim_col_ids = [c["id"] for c in dim_cols]
-    dim_rename = {c["id"]: c["id"].strip("_") for c in dim_cols}  # __dim_0__ → dim_0
+    dim_rename = {c["id"]: c.get("name", c["id"].strip("_")) for c in dim_cols}
 
     frames = []
     for col in est_cols:
@@ -413,7 +413,7 @@ def wide_to_long(data: list[dict], columns: list[dict]) -> pd.DataFrame:
 
     # Apply ordered Categorical dtype to each dim column using Census-defined order
     for dc in dim_cols:
-        clean_name = dc["id"].strip("_")  # dim_0, dim_1, ...
+        clean_name = dc.get("name", dc["id"].strip("_"))
         cats = dc.get("categories", [])
         if clean_name in long_df.columns and cats:
             long_df[clean_name] = pd.Categorical(
@@ -499,20 +499,36 @@ def _build_chart_title(
     geo_list: list[dict] | None,
     vintages: list[int] | None,
 ) -> str:
-    """Build a human-readable chart title from the current selections."""
-    parts = []
-    if group_description:
-        parts.append(group_description)
-    if geo_list:
-        geo_names = [g.get("scope", "") for g in geo_list]
-        parts.append(", ".join(n for n in geo_names if n))
+    """Build a chart title in the form '{years} {concept} for {geography}'."""
+    year_str = ""
     if vintages:
-        sorted_v = sorted(vintages)
-        if len(sorted_v) == 1:
-            parts.append(f"({sorted_v[0]})")
+        sv = sorted(vintages)
+        if len(sv) == 1:
+            year_str = str(sv[0])
+        elif sv == list(range(sv[0], sv[-1] + 1)):
+            year_str = f"{sv[0]}–{sv[-1]}"
         else:
-            parts.append(f"({sorted_v[0]}–{sorted_v[-1]})")
-    return " — ".join(p for p in parts if p)
+            year_str = ", ".join(str(y) for y in sv)
+
+    concept_str = group_description or ""
+
+    geo_str = ""
+    if geo_list:
+        try:
+            from app.selectors import scope_title_name
+            names = [scope_title_name(g["scope"]) for g in geo_list if g.get("scope")]
+            geo_str = ", ".join(n for n in names if n)
+        except Exception:
+            geo_str = ", ".join(g.get("scope", "") for g in (geo_list or []))
+
+    parts = []
+    if year_str:
+        parts.append(year_str)
+    if concept_str:
+        parts.append(concept_str)
+    if geo_str:
+        parts.append(f"for {geo_str}")
+    return " ".join(parts)
 
 
 def render_chart_from_long(
@@ -524,13 +540,15 @@ def render_chart_from_long(
     facet_field: str | None = None,
     *,
     title: str = "",
-    subtitle: str = "",
     y_label: str = "",
+    aspect_ratio: float = 1.0,
 ) -> dict:
     """Render a Vega-Lite spec dict from a chart-ready long DataFrame."""
     if chart_df.empty:
         return {}
     try:
+        source_caption = "Source: U.S. Census Bureau, American Community Survey 5-Year Estimates"
+
         def _col(field, fallback):
             return field if field and field in chart_df.columns else fallback
 
@@ -556,13 +574,24 @@ def render_chart_from_long(
             sort_order = _sort(col)
             return {"sort": sort_order} if sort_order is not None else {}
 
-        x_enc = alt.X(f"{x}:{_type(x)}", title="", axis=alt.Axis(labelAngle=-45), **_enc_kwargs(x))
         y_title = y_label if y_label else (y.replace("_", " ").title() if y != "value" else "Estimate")
-        y_enc = alt.Y(f"{y}:{_type(y)}", title=y_title, **_enc_kwargs(y))
         tooltip_fields = list({x, y, color_field, facet} - {None})
         tooltip = [f"{f}:{_type(f)}" for f in tooltip_fields if f in chart_df.columns]
 
+        base_height = int(350 * aspect_ratio)
+        facet_height = int(200 * aspect_ratio)
+
+        # Horizontal bar: swap axes so bars extend along X
+        is_horizontal = chart_type == "bar_horizontal"
+        if is_horizontal:
+            x_enc = alt.X(f"{y}:{_type(y)}", title=y_title)
+            y_enc = alt.Y(f"{x}:{_type(x)}", title="", axis=alt.Axis(labelLimit=200), **_enc_kwargs(x))
+        else:
+            x_enc = alt.X(f"{x}:{_type(x)}", title="", axis=alt.Axis(labelAngle=-45), **_enc_kwargs(x))
+            y_enc = alt.Y(f"{y}:{_type(y)}", title=y_title, **_enc_kwargs(y))
+
         encode_kwargs: dict = {"x": x_enc, "y": y_enc, "tooltip": tooltip}
+
         if color_field and color_field in chart_df.columns:
             encode_kwargs["color"] = alt.Color(
                 f"{color_field}:{_type(color_field)}", title="", **_enc_kwargs(color_field)
@@ -571,26 +600,44 @@ def render_chart_from_long(
                 encode_kwargs["xOffset"] = alt.XOffset(
                     f"{color_field}:{_type(color_field)}", **_enc_kwargs(color_field)
                 )
+            elif is_horizontal and color_field != x:
+                encode_kwargs["yOffset"] = alt.YOffset(
+                    f"{color_field}:{_type(color_field)}", **_enc_kwargs(color_field)
+                )
+            # bar_stacked: color without xOffset → Vega-Lite stacks automatically
 
-        mark = {"bar": "bar", "line": "line", "point": "point"}.get(chart_type, "bar")
-        mark_kwargs = {"point": True} if mark == "line" else {}
-        base = getattr(alt.Chart(chart_df), f"mark_{mark}")(**mark_kwargs).encode(**encode_kwargs)
+        base_mark = {"bar": "bar", "bar_stacked": "bar", "bar_horizontal": "bar",
+                     "line": "line", "point": "point"}.get(chart_type, "bar")
+        mark_kwargs = {"point": True} if base_mark == "line" else {}
+        base = getattr(alt.Chart(chart_df), f"mark_{base_mark}")(**mark_kwargs).encode(**encode_kwargs)
 
         title_props: dict = {}
         if title:
-            title_props["title"] = alt.TitleParams(text=title, subtitle=subtitle) if subtitle else title
-        elif subtitle:
-            title_props["title"] = alt.TitleParams(text="", subtitle=subtitle)
+            title_props["title"] = alt.TitleParams(text=title, anchor="start", fontSize=13)
+
+        caption_chart = (
+            alt.Chart({"values": [{}]})
+            .mark_text(
+                text=source_caption,
+                align="left",
+                baseline="top",
+                color="#888",
+                fontSize=10,
+                fontStyle="italic",
+            )
+            .properties(height=16)
+        )
 
         if facet and facet in chart_df.columns:
-            chart = base.properties(width=200, height=200).facet(
+            main = base.properties(width=200, height=facet_height).facet(
                 facet=alt.Facet(f"{facet}:{_type(facet)}", **_enc_kwargs(facet)), columns=3
             )
             if title_props:
-                chart = chart.properties(**title_props)
+                main = main.properties(**title_props)
         else:
-            chart = base.properties(width="container", height=350, **title_props)
+            main = base.properties(width="container", height=base_height, **title_props)
 
+        chart = alt.vconcat(main, caption_chart).configure_view(stroke="transparent").configure_concat(spacing=4)
         return chart.to_dict()
     except Exception as exc:
         logger.error("Chart render failed: %s", exc)
@@ -876,15 +923,15 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("chart-color-by", "value"),
         Output("chart-facet", "options"),
         Output("chart-facet", "value"),
-        Input("long-data-store", "data"),
-        Input("dropped-dims-store", "data"),
+        Input("wide-data-store", "data"),
     )
-    def update_chart_axis_options(store_data, dropped_dims):
-        if not store_data:
-            empty = []
+    def update_chart_axis_options(wide_data):
+        empty: list = []
+        if not wide_data:
             return empty, None, empty, None, empty, None, empty, None
-        long_df = deserialise_long(store_data)
-        chart_df = long_to_chart_df(long_df, "estimate", dropped_dims)
+        data = wide_data.get("data", [])
+        columns = wide_data.get("columns", [])
+        chart_df = wide_to_long(data, columns)
         options = _chart_axis_options_from_long(chart_df)
         vals = [o["value"] for o in options]
         dim_vals = [v for v in vals if v not in ("geography", "year", "value")]
@@ -895,37 +942,47 @@ def register_callbacks(app: dash.Dash) -> None:
 
     @app.callback(
         Output("chart-image", "spec"),
-        Input("long-data-store", "data"),
+        Input("wide-data-store", "data"),
         Input("chart-type", "value"),
         Input("chart-x-axis", "value"),
         Input("chart-y-axis", "value"),
         Input("chart-color-by", "value"),
         Input("chart-facet", "value"),
-        State("dropped-dims-store", "data"),
+        Input("chart-aspect-ratio", "value"),
+        Input({"type": "dim-filter", "index": ALL}, "value"),
+        State({"type": "dim-filter", "index": ALL}, "id"),
         State("value-mode-radio", "value"),
         State("group-dropdown", "value"),
         State("group-dropdown", "options"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
     )
-    def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field,
-                     dropped_dims, value_mode, group_code, group_options, vintages, geo_list):
-        if not store_data:
+    def update_chart(wide_data, chart_type, x_field, y_field, color_field, facet_field,
+                     aspect_ratio, filter_values, filter_ids,
+                     value_mode, group_code, group_options, vintages, geo_list):
+        if not wide_data:
             return {}
-        long_df = deserialise_long(store_data)
-        chart_df = long_to_chart_df(long_df, value_mode or "estimate", dropped_dims)
 
-        # Build title from group label
+        filters = {
+            fid["index"]: fval
+            for fid, fval in zip(filter_ids or [], filter_values or [])
+            if fval
+        }
+        data, columns = apply_dim_filters(wide_data, filters)
+        if not data:
+            return {}
+        chart_df = wide_to_long(data, columns)
+        if chart_df.empty:
+            return {}
+
         group_desc = None
         if group_code and group_options:
             opt = next((o for o in group_options if o["value"] == group_code), None)
             if opt:
-                # Label format: "B01001 — Sex by Age"
                 label = opt["label"]
                 group_desc = label.split(" — ", 1)[-1] if " — " in label else label
 
         title = _build_chart_title(group_desc, geo_list, vintages)
-        subtitle = "Source: U.S. Census Bureau, American Community Survey 5-Year Estimates"
         y_axis_label = "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate"
 
         return render_chart_from_long(
@@ -936,8 +993,8 @@ def register_callbacks(app: dash.Dash) -> None:
             color_field or None,
             facet_field or None,
             title=title,
-            subtitle=subtitle,
             y_label=y_axis_label,
+            aspect_ratio=float(aspect_ratio) if aspect_ratio is not None else 1.0,
         )
 
     @app.callback(

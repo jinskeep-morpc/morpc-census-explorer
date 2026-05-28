@@ -1,3 +1,15 @@
+## Chart overhaul: table-derived data, new chart types, aspect ratio, clean title/caption (issue #27)
+
+Four changes to chart rendering:
+1. Chart data now derived from the currently filtered wide table (`wide-data-store` + active dim filters → `apply_dim_filters` → `wide_to_long`) instead of rebuilding from the raw long store. Chart always matches table.
+2. Dimension columns in `wide_to_long` now use human-readable names from column metadata ("Sex", "Age Group") instead of "dim_0", "dim_1".
+3. Added Stacked Bar and Horizontal Bar chart types. Horizontal bar swaps X/Y axes; stacked bar drops the xOffset grouping so Vega-Lite stacks automatically.
+4. Aspect ratio slider (0.5× to 2.5×, default 1×) added to chart section in sidebar.
+5. Title format changed to "{year(s)} {concept} for {geography}" (e.g., "2024 Sex by Age for Franklin County"). Added `scope_title_name()` to selectors.py for natural-language geo names.
+6. Source attribution moved from title subtitle to a Vega-Lite vconcat caption at the bottom of the chart.
+
+---
+
 ## UI polish: scope ordering, sumlevel filter, label/layout updates
 
 Five sidebar UI improvements:
