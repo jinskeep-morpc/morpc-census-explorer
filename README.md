@@ -88,6 +88,12 @@ python -m app.main
 - [x] User-facing error messages (bad scope/sumlevel combo, API timeout)
 - [x] MORPC colour theme applied to Dash components
 - [x] CI: GitHub Actions running lint + import check
+- [x] Fix sidebar dropdowns rendering behind DataTable/chart (remove overflow clipping, add z-index CSS)
+- [x] Scope dropdown ordered by category (Region → CBSA → Counties → States → US)
+- [x] Sumlevel dropdown shows only Census standard levels (M* MORPC codes excluded)
+- [x] "View" section label renamed to "Table view"
+- [x] Chart section: Chart Type selector moved above variable selectors
+- [x] Export buttons include short descriptions of each format
 
 ---
 

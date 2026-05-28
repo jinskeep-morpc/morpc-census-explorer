@@ -71,6 +71,16 @@
   font-weight: 600 !important;
 }
 
+/* ── Dropdown menus — render above DataTable and Vega chart ─────── */
+/* The sidebar had overflow:auto which clipped absolute-pos menus;
+   removing that fixed clipping. The z-index here handles stacking
+   against the chart/table in the sibling column. */
+.Select-menu-outer,
+.VirtualizedSelectMenu,
+.dash-dropdown .Select-menu-outer {
+  z-index: 9999 !important;
+}
+
 /* ── DataTable filter row ─────────────────────────────────────── */
 .dash-filter input {
   border-color: var(--morpc-sky) !important;

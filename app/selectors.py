@@ -80,14 +80,36 @@ def scope_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
+def _scope_sort_key(key: str, scope) -> tuple[int, str]:
+    """Return (category_order, key) so scopes sort as Region, CBSA, Counties, States, US."""
+    for_param = getattr(scope, "for_param", "") or ""
+    geo_type = for_param.split(":")[0].strip().lower() if ":" in for_param else ""
+    values_part = for_param.split(":", 1)[-1] if ":" in for_param else ""
+    is_multi = "," in values_part
+    if geo_type == "county" and is_multi:
+        return (0, key)
+    if "metropolitan" in geo_type or "micropolitan" in geo_type:
+        return (1, key)
+    if geo_type == "county" and not is_multi:
+        return (2, key)
+    if geo_type == "state":
+        return (3, key)
+    if geo_type == "us":
+        return (4, key)
+    return (5, key)
+
+
 @lru_cache(maxsize=1)
 def scope_options() -> list[dict]:
-    """All named scopes from morpc.SCOPES, sorted alphabetically."""
+    """All named scopes from morpc.SCOPES, ordered Region → CBSA → Counties → States → US."""
     try:
         scopes = _scopes_map()
         if not scopes:
             raise ValueError("empty")
-        return [{"label": _scope_label(k, scopes[k]), "value": k} for k in sorted(scopes.keys())]
+        return [
+            {"label": _scope_label(k, scopes[k]), "value": k}
+            for k in sorted(scopes.keys(), key=lambda k: _scope_sort_key(k, scopes[k]))
+        ]
     except Exception:
         logger.warning("Could not load scope options from morpc.")
         return []
@@ -101,7 +123,7 @@ def sumlevel_options() -> list[dict]:
         return [
             {"label": f"{desc.get('singular', code)} ({code})", "value": code}
             for code, desc in SUMLEVEL_DESCRIPTIONS.items()
-            if desc.get("singular")
+            if desc.get("singular") and not code.startswith("M")
         ]
     except Exception:
         logger.warning("Could not load sumlevel options from morpc.")
