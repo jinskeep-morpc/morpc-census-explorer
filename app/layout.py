@@ -265,8 +265,6 @@ def make_layout() -> dbc.Container:
                             style={
                                 "position": "sticky",
                                 "top": "1rem",
-                                "maxHeight": "calc(100vh - 2rem)",
-                                "overflowY": "auto",
                             },
                         ),
                         md=3,

@@ -88,6 +88,7 @@ python -m app.main
 - [x] User-facing error messages (bad scope/sumlevel combo, API timeout)
 - [x] MORPC colour theme applied to Dash components
 - [x] CI: GitHub Actions running lint + import check
+- [x] Fix sidebar dropdowns rendering behind DataTable/chart (remove overflow clipping, add z-index CSS)
 
 ---
 

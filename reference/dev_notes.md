@@ -1,3 +1,9 @@
+## Fix: Sidebar dropdown z-index / overflow clipping (issue #25)
+
+Removed `overflowY: auto` and `maxHeight` from the sidebar sticky wrapper in `app/layout.py`. These CSS properties created a block formatting context that clipped absolutely-positioned dropdown menus, causing them to render behind the DataTable and Vega chart. Also added `z-index: 9999` rules in `app/assets/custom.css` targeting `.Select-menu-outer` and `.VirtualizedSelectMenu` to ensure menus stack above sibling-column content regardless of stacking context.
+
+---
+
 # Dev Notes
 
 ## 2026-05-18 — Fix _choose_drop_method for universal-root dims (B01001)
