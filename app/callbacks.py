@@ -17,14 +17,12 @@ import dash_bootstrap_components as dbc
 from app.db import SessionLocal
 from app.exports import export_excel, export_frictionless
 from app.fetch import (
-    _choose_drop_method,
-    build_wide_table,
+    build_display_df,
     deserialise_long,
     fetch_all_geos,
     get_droppable_dims,
     serialise_long,
 )
-from morpc_census.api import DimensionTable
 from app.selectors import group_options_for_topic, scope_label
 
 
@@ -89,24 +87,6 @@ def compute_fetch_and_store(
             session.close()
 
 
-def compute_table(
-    store_data: dict | None,
-    value_mode: str | None,
-    show_moe: bool | None,
-    dropped_dims: list[str] | None = None,
-) -> tuple[list, list, dict]:
-    """Build DataTable data/columns from stored long DataFrame.
-
-    Returns (data, columns, value_type_card_style).
-    """
-    if not store_data:
-        return [], [], {"display": "none"}
-
-    long_df = deserialise_long(store_data)
-    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
-    return data, columns, {"display": "block"}
-
-
 def compute_dim_controls(
     store_data: dict | None,
     dropped_dims: list[str] | None,
@@ -136,49 +116,30 @@ def compute_dim_controls(
     return buttons, reset_style
 
 
-def compute_wide_data(
-    store_data: dict | None,
-    value_mode: str | None,
-    show_moe: bool | None,
-    dropped_dims: list[str] | None = None,
-) -> dict | None:
-    """Build the unfiltered wide table. Returns ``{"data": [...], "columns": [...]}`` or None."""
-    if not store_data:
-        return None
-    long_df = deserialise_long(store_data)
-    data, columns = build_wide_table(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
-    if not data:
-        return None
-    return {"data": data, "columns": columns}
-
-
-def compute_dim_filter_controls(wide_data: dict | None) -> list:
-    """Return a Dropdown for each dim column that has more than one unique value."""
-    if not wide_data:
+def compute_dim_filter_controls(display_df: pd.DataFrame | None) -> list:
+    """Return a Dropdown for each dim column in display_df that has more than one unique value."""
+    if display_df is None or (isinstance(display_df, pd.DataFrame) and display_df.empty):
         return []
-    data = wide_data.get("data", [])
-    columns = wide_data.get("columns", [])
-    dim_cols = [c for c in columns if c["id"].startswith("__dim_")]
+    reserved = {"name", "reference_period", "value", "moe"}
+    dim_cols = [c for c in display_df.columns if c not in reserved]
     if not dim_cols:
         return []
     controls = []
     for col in dim_cols:
-        col_id = col["id"]       # "__dim_0__"
-        col_name = col_id[2:-2]  # "dim_0"
-        present = {str(row[col_id]) for row in data if row.get(col_id) not in (None, "")}
-        ordered_cats = col.get("categories", [])
-        if ordered_cats:
-            unique_vals = [c for c in ordered_cats if c in present]
+        s = display_df[col]
+        if hasattr(s, "cat") and s.cat.ordered:
+            present = set(s.dropna().astype(str))
+            unique_vals = [v for v in (str(c) for c in s.cat.categories) if v in present]
         else:
-            unique_vals = sorted(present)
+            unique_vals = sorted(str(v) for v in s.dropna().unique())
         if len(unique_vals) <= 1:
             continue
         controls.append(
             html.Span(
                 [
-                    dbc.Label(col["name"], className="small me-1 mb-0 fw-semibold"),
+                    dbc.Label(col, className="small me-1 mb-0 fw-semibold"),
                     dcc.Dropdown(
-                        id={"type": "dim-filter", "index": col_name},
+                        id={"type": "dim-filter", "index": col},
                         options=[{"label": v, "value": v} for v in unique_vals],
                         value=None,
                         multi=True,
@@ -193,27 +154,25 @@ def compute_dim_filter_controls(wide_data: dict | None) -> list:
 
 
 def apply_dim_filters(
-    wide_data: dict | None,
+    display_df: pd.DataFrame | None,
     filters: dict[str, list],
-) -> tuple[list[dict], list[dict]]:
-    """Filter wide table rows by dim column selections.
+) -> pd.DataFrame:
+    """Filter display_df rows by dim column selections.
 
     Parameters
     ----------
-    wide_data:
-        Dict from ``compute_wide_data`` with ``"data"`` and ``"columns"`` keys.
+    display_df:
+        DataFrame from ``build_display_df``.
     filters:
-        ``{dim_name: [selected_values]}`` — only dims with non-empty selections applied.
+        ``{col_name: [selected_values]}`` — only cols with non-empty selections are applied.
     """
-    if not wide_data:
-        return [], []
-    data = list(wide_data.get("data", []))
-    columns = list(wide_data.get("columns", []))
-    for dim_name, selected_vals in (filters or {}).items():
-        if selected_vals:
-            col_id = f"__{dim_name}__"
-            data = [row for row in data if row.get(col_id) in selected_vals]
-    return data, columns
+    if display_df is None or (isinstance(display_df, pd.DataFrame) and display_df.empty):
+        return pd.DataFrame()
+    df = display_df.copy()
+    for col, vals in (filters or {}).items():
+        if vals and col in df.columns:
+            df = df[df[col].astype(str).isin([str(v) for v in vals])]
+    return df.reset_index(drop=True)
 
 
 def compute_dropped_dims(
@@ -350,134 +309,6 @@ def compute_excel_download(
     except Exception as exc:
         logger.error("Excel export failed: %s", exc)
         return no_update
-
-
-def wide_to_long(data: list[dict], columns: list[dict]) -> pd.DataFrame:
-    """Convert build_wide_table output to a long DataFrame for charting.
-
-    Returns a DataFrame with columns:
-    - ``dim_0``, ``dim_1``, ... : ordered Categorical per dimension level
-    - ``geography``: geo name parsed from the value column ID
-    - ``year``: vintage year parsed from the value column ID
-    - ``value``: numeric estimate value
-
-    Subtotal/aggregate rows are excluded using the ``__is_leaf__`` flag written
-    by ``build_wide_table``, with a fallback heuristic for older data.
-    """
-    df_wide = pd.DataFrame(data)
-    dim_cols = sorted(
-        [c for c in columns if c["id"].startswith("__dim_")],
-        key=lambda c: c["id"],
-    )
-    est_cols = [c for c in columns if not c["id"].startswith("__dim_") and "[MOE]" not in c["name"]]
-
-    if df_wide.empty or not est_cols:
-        return pd.DataFrame()
-
-    # Filter to leaf rows only
-    if "__is_leaf__" in df_wide.columns:
-        df_wide = df_wide[df_wide["__is_leaf__"]].reset_index(drop=True)
-    else:
-        # Fallback: heuristic for data written before __is_leaf__ was added
-        dim_col_ids = [c["id"] for c in dim_cols]
-        if len(dim_col_ids) > 1:
-            higher_ids = dim_col_ids[1:]
-
-            def _is_total(row: pd.Series) -> bool:
-                return all(
-                    row.get(cid) in (None, "", "nan", "None") or pd.isna(row.get(cid))
-                    for cid in higher_ids
-                )
-
-            df_wide = df_wide[~df_wide.apply(_is_total, axis=1)].reset_index(drop=True)
-
-    if df_wide.empty:
-        return pd.DataFrame()
-
-    dim_col_ids = [c["id"] for c in dim_cols]
-    dim_rename = {c["id"]: c.get("name", c["id"].strip("_")) for c in dim_cols}
-
-    frames = []
-    for col in est_cols:
-        parts = col["id"].rsplit("__", 3)
-        geography = parts[0] if len(parts) == 4 else col["name"]
-        year = int(parts[1]) if len(parts) == 4 and parts[1].isdigit() else None
-
-        chunk = df_wide[dim_col_ids + [col["id"]]].copy()
-        chunk = chunk.rename(columns={**dim_rename, col["id"]: "value"})
-        chunk["geography"] = geography
-        chunk["year"] = year
-        frames.append(chunk)
-
-    long_df = pd.concat(frames, ignore_index=True).dropna(subset=["value"])
-
-    # Apply ordered Categorical dtype to each dim column using Census-defined order
-    for dc in dim_cols:
-        clean_name = dc.get("name", dc["id"].strip("_"))
-        cats = dc.get("categories", [])
-        if clean_name in long_df.columns and cats:
-            long_df[clean_name] = pd.Categorical(
-                long_df[clean_name], categories=cats, ordered=True
-            )
-
-    return long_df
-
-
-def long_to_chart_df(
-    long_df: pd.DataFrame,
-    value_mode: str = "estimate",
-    dropped_dims: list[str] | None = None,
-) -> pd.DataFrame:
-    """Build a flat chart-ready DataFrame from the original CensusAPI.long data.
-
-    Columns: one per dimension (named by concept_dims), geography, year, value.
-    Only leaf rows are included.
-    """
-    if long_df.empty or "variable_label" not in long_df.columns:
-        return pd.DataFrame()
-
-    dt = DimensionTable(long_df)
-    if dropped_dims:
-        for dim in dropped_dims:
-            method = _choose_drop_method(dt, dim)
-            try:
-                dt = dt.drop(dim, method=method)
-            except Exception:
-                pass
-
-    dims_df = dt.dims  # DataFrame indexed by variable, columns = human-readable dim names
-
-    def _is_leaf(row: pd.Series) -> bool:
-        # A row is a leaf if every dim column is non-empty (no empty string means
-        # no deeper dim splits this row).  When the data uses ':'-suffix labels on
-        # all levels (e.g. "Male:", "Under 5 years:") the last-char ':' heuristic
-        # cannot distinguish subtotals from leaves, so we use the emptiness check.
-        return all(str(v) != "" for v in row)
-
-    leaf_vars = set(dims_df.index[dims_df.apply(_is_leaf, axis=1)])
-    long = dt.long[dt.long["variable"].isin(leaf_vars)].copy()
-    if long.empty:
-        return pd.DataFrame()
-
-    for col in dims_df.columns:
-        clean_vals = dims_df[col].astype(str).str.rstrip(":").str.strip()
-        long[col] = long["variable"].map(clean_vals)
-        cats = list(dict.fromkeys(
-            c for c in (str(v).rstrip(":").strip() for v in dims_df[col].cat.categories) if c
-        ))
-        long[col] = pd.Categorical(long[col], categories=cats, ordered=True)
-
-    value_col = "percent_estimate" if value_mode == "percent" else "estimate"
-    rename_map: dict[str, str] = {"reference_period": "year"}
-    if "name" in long.columns:
-        rename_map["name"] = "geography"
-    if value_col in long.columns:
-        rename_map[value_col] = "value"
-    long = long.rename(columns=rename_map)
-
-    dim_cols = list(dims_df.columns)
-    keep = [c for c in dim_cols + ["geography", "year", "value"] if c in long.columns]
-    return long[keep].dropna(subset=["value"]).reset_index(drop=True)
 
 
 def _chart_axis_options_from_long(chart_df: pd.DataFrame) -> list[dict]:
@@ -644,22 +475,6 @@ def render_chart_from_long(
         return {}
 
 
-def _chart_axis_options(wide_data: dict) -> list[dict]:
-    """Return dropdown options derived from wide_data columns."""
-    columns = wide_data.get("columns", [])
-    dim_cols = sorted(
-        [c for c in columns if c["id"].startswith("__dim_")],
-        key=lambda c: c["id"],
-    )
-    options = [{"label": c["name"], "value": c["id"].strip("_")} for c in dim_cols]
-    options += [
-        {"label": "Geography", "value": "geography"},
-        {"label": "Year", "value": "year"},
-        {"label": "Value", "value": "value"},
-    ]
-    return options
-
-
 def render_chart_image(
     long_df: pd.DataFrame,
     x_col: str,
@@ -698,95 +513,6 @@ def render_chart_image(
             )
 
         return chart.properties(width="container", height=350).to_dict()
-    except Exception as exc:
-        logger.error("Chart render failed: %s", exc)
-        return {}
-
-
-def render_chart_from_wide(
-    wide_data: dict | None,
-    chart_type: str = "bar",
-    x_field: str = "dim_0",
-    y_field: str = "value",
-    color_field: str | None = "geography",
-    facet_field: str | None = None,
-) -> dict:
-    """Render a Vega-Lite spec from the serialised wide-table produced by build_wide_table.
-
-    Returns a Vega-Lite spec dict, or {} on error/no data.
-    """
-    if not wide_data:
-        return {}
-    data = wide_data.get("data", [])
-    columns = wide_data.get("columns", [])
-    if not data or not columns:
-        return {}
-
-    try:
-        plot_df = wide_to_long(data, columns)
-        if plot_df.empty:
-            return {}
-
-        def _col(field: str | None, fallback: str) -> str:
-            return field if field and field in plot_df.columns else fallback
-
-        x = _col(x_field, plot_df.columns[0])
-        y = _col(y_field, "value")
-        facet = _col(facet_field, None) if facet_field else None
-
-        def _type(col: str) -> str:
-            s = plot_df[col]
-            if pd.api.types.is_numeric_dtype(s):
-                return "Q"
-            if hasattr(s, "cat") and s.cat.ordered:
-                return "O"
-            return "N"
-
-        def _sort(col: str) -> list | None:
-            s = plot_df[col]
-            if hasattr(s, "cat") and s.cat.ordered:
-                return list(s.cat.categories)
-            return None
-
-        def _enc_kwargs(col: str) -> dict:
-            sort_order = _sort(col)
-            return {"sort": sort_order} if sort_order is not None else {}
-
-        x_enc = alt.X(
-            f"{x}:{_type(x)}", title="",
-            axis=alt.Axis(labelAngle=-45),
-            **_enc_kwargs(x),
-        )
-        y_enc = alt.Y(f"{y}:{_type(y)}", title=y.replace("_", " ").title(), **_enc_kwargs(y))
-        tooltip_fields = list({x, y, color_field, facet} - {None})
-        tooltip = [f"{f}:{_type(f)}" for f in tooltip_fields if f in plot_df.columns]
-
-        encode_kwargs: dict = {"x": x_enc, "y": y_enc, "tooltip": tooltip}
-        if color_field and color_field in plot_df.columns:
-            encode_kwargs["color"] = alt.Color(
-                f"{color_field}:{_type(color_field)}", title="", **_enc_kwargs(color_field)
-            )
-            if chart_type == "bar" and color_field != x:
-                encode_kwargs["xOffset"] = alt.XOffset(
-                    f"{color_field}:{_type(color_field)}", **_enc_kwargs(color_field)
-                )
-
-        mark = {"bar": "bar", "line": "line", "point": "point"}.get(chart_type, "bar")
-        mark_kwargs = {"point": True} if mark == "line" else {}
-
-        base = getattr(alt.Chart(plot_df), f"mark_{mark}")(**mark_kwargs).encode(
-            **encode_kwargs
-        )
-
-        if facet and facet in plot_df.columns:
-            facet_enc = alt.Facet(f"{facet}:{_type(facet)}", **_enc_kwargs(facet))
-            chart = base.properties(width=200, height=200).facet(
-                facet=facet_enc, columns=3,
-            )
-        else:
-            chart = base.properties(width="container", height=350)
-
-        return chart.to_dict()
     except Exception as exc:
         logger.error("Chart render failed: %s", exc)
         return {}
@@ -871,39 +597,58 @@ def register_callbacks(app: dash.Dash) -> None:
         return compute_dropped_dims(n_drops, n_reset, current_dropped, dash.ctx.triggered_id)
 
     @app.callback(
-        Output("wide-data-store", "data"),
+        Output("dim-filter-controls", "children"),
         Input("long-data-store", "data"),
         Input("value-mode-radio", "value"),
         Input("show-moe-checkbox", "value"),
         Input("dropped-dims-store", "data"),
     )
-    def compute_wide_cb(store_data, value_mode, show_moe, dropped_dims):
-        return compute_wide_data(store_data, value_mode, show_moe, dropped_dims)
-
-    @app.callback(
-        Output("dim-filter-controls", "children"),
-        Input("wide-data-store", "data"),
-    )
-    def render_dim_filter_controls_cb(wide_data):
-        return compute_dim_filter_controls(wide_data)
+    def render_dim_filter_controls_cb(store_data, value_mode, show_moe, dropped_dims):
+        if not store_data:
+            return []
+        long_df = deserialise_long(store_data)
+        display_df = build_display_df(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
+        return compute_dim_filter_controls(display_df)
 
     @app.callback(
         Output("data-output", "children"),
-        Input("wide-data-store", "data"),
+        Input("long-data-store", "data"),
+        Input("value-mode-radio", "value"),
+        Input("show-moe-checkbox", "value"),
+        Input("dropped-dims-store", "data"),
         Input({"type": "dim-filter", "index": ALL}, "value"),
         State({"type": "dim-filter", "index": ALL}, "id"),
     )
-    def render_table(wide_data, filter_values, filter_ids):
+    def render_table(store_data, value_mode, show_moe, dropped_dims, filter_values, filter_ids):
+        if not store_data:
+            return no_update
+        long_df = deserialise_long(store_data)
+        display_df = build_display_df(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
+        if display_df.empty:
+            return no_update
         filters = {
             fid["index"]: fval
             for fid, fval in zip(filter_ids or [], filter_values or [])
             if fval
         }
-        data, columns = apply_dim_filters(wide_data, filters)
-        if not data:
+        display_df = apply_dim_filters(display_df, filters)
+        if display_df.empty:
             return no_update
+
+        col_display = {
+            "name": "Geography",
+            "reference_period": "Year",
+            "value": "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate",
+            "moe": "Margin of Error",
+        }
+        df_for_table = display_df.copy()
+        for col in df_for_table.columns:
+            if hasattr(df_for_table[col], "cat"):
+                df_for_table[col] = df_for_table[col].astype(str)
+
+        columns = [{"name": col_display.get(col, col), "id": col} for col in df_for_table.columns]
         table = dash_table.DataTable(
-            data=data,
+            data=df_for_table.to_dict("records"),
             columns=columns,
             page_size=15,
             sort_action="native",
@@ -923,15 +668,19 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("chart-color-by", "value"),
         Output("chart-facet", "options"),
         Output("chart-facet", "value"),
-        Input("wide-data-store", "data"),
+        Input("long-data-store", "data"),
+        Input("value-mode-radio", "value"),
+        Input("dropped-dims-store", "data"),
     )
-    def update_chart_axis_options(wide_data):
+    def update_chart_axis_options(store_data, value_mode, dropped_dims):
         empty: list = []
-        if not wide_data:
+        if not store_data:
             return empty, None, empty, None, empty, None, empty, None
-        data = wide_data.get("data", [])
-        columns = wide_data.get("columns", [])
-        chart_df = wide_to_long(data, columns)
+        long_df = deserialise_long(store_data)
+        display_df = build_display_df(long_df, value_mode or "estimate", False, dropped_dims)
+        if display_df.empty:
+            return empty, None, empty, None, empty, None, empty, None
+        chart_df = display_df.rename(columns={"name": "geography", "reference_period": "year"})
         options = _chart_axis_options_from_long(chart_df)
         vals = [o["value"] for o in options]
         dim_vals = [v for v in vals if v not in ("geography", "year", "value")]
@@ -942,7 +691,7 @@ def register_callbacks(app: dash.Dash) -> None:
 
     @app.callback(
         Output("chart-image", "spec"),
-        Input("wide-data-store", "data"),
+        Input("long-data-store", "data"),
         Input("chart-type", "value"),
         Input("chart-x-axis", "value"),
         Input("chart-y-axis", "value"),
@@ -952,28 +701,30 @@ def register_callbacks(app: dash.Dash) -> None:
         Input({"type": "dim-filter", "index": ALL}, "value"),
         State({"type": "dim-filter", "index": ALL}, "id"),
         State("value-mode-radio", "value"),
+        State("dropped-dims-store", "data"),
         State("group-dropdown", "value"),
         State("group-dropdown", "options"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
     )
-    def update_chart(wide_data, chart_type, x_field, y_field, color_field, facet_field,
+    def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field,
                      aspect_ratio, filter_values, filter_ids,
-                     value_mode, group_code, group_options, vintages, geo_list):
-        if not wide_data:
+                     value_mode, dropped_dims, group_code, group_options, vintages, geo_list):
+        if not store_data:
             return {}
-
+        long_df = deserialise_long(store_data)
+        display_df = build_display_df(long_df, value_mode or "estimate", False, dropped_dims)
+        if display_df.empty:
+            return {}
         filters = {
             fid["index"]: fval
             for fid, fval in zip(filter_ids or [], filter_values or [])
             if fval
         }
-        data, columns = apply_dim_filters(wide_data, filters)
-        if not data:
+        display_df = apply_dim_filters(display_df, filters)
+        if display_df.empty:
             return {}
-        chart_df = wide_to_long(data, columns)
-        if chart_df.empty:
-            return {}
+        chart_df = display_df.rename(columns={"name": "geography", "reference_period": "year"})
 
         group_desc = None
         if group_code and group_options:

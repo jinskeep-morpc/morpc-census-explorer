@@ -14,7 +14,6 @@ def make_layout() -> dbc.Container:
             dcc.Store(id="long-data-store"),
             dcc.Store(id="geo-list-store", data=[]),
             dcc.Store(id="dropped-dims-store", data=[]),
-            dcc.Store(id="wide-data-store"),
             # Download triggers
             dcc.Download(id="download-frictionless"),
             dcc.Download(id="download-excel"),
