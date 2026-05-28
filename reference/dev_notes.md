@@ -1,3 +1,7 @@
+## feat/long-data-pipeline-29 — Rebuild table and chart from long data directly
+
+Replaced the wide-pivot intermediate store with build_display_df, which produces a tidy long DataFrame (dim cols, name, reference_period, value[, moe]) directly from CensusAPI.long. Removed compute_wide_data, wide_to_long, long_to_chart_df, render_chart_from_wide, _chart_axis_options, compute_table from callbacks.py; removed the wide-data-store dcc.Store from layout.py; rewrote apply_dim_filters (DataFrame in/out), compute_dim_filter_controls (takes display_df), and all four affected Dash callbacks to drive from long-data-store directly. Tests updated to match: removed render_chart_from_wide and long_to_chart_df suites, rewrote apply_dim_filters and compute_dim_filter_controls tests, added TestBuildDisplayDf. 71 tests passing.
+
 ## Chart overhaul: table-derived data, new chart types, aspect ratio, clean title/caption (issue #27)
 
 Four changes to chart rendering:

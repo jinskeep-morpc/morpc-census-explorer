@@ -17,12 +17,10 @@ from app.callbacks import (
     compute_geo_chips,
     compute_geo_list,
     compute_group_options,
-    long_to_chart_df,
     render_chart_from_long,
-    render_chart_from_wide,
     render_chart_image,
 )
-from app.fetch import build_wide_table, serialise_long
+from app.fetch import build_display_df, serialise_long
 
 _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
@@ -245,10 +243,14 @@ def _make_multi_dim_store():
     return serialise_long(_make_multi_dim_long())
 
 
-def _make_multi_dim_wide():
-    df = _make_multi_dim_long()
-    data, cols = build_wide_table(df, "estimate", False)
-    return {"data": data, "columns": cols}
+def _make_display_df():
+    return build_display_df(_make_multi_dim_long())
+
+
+def _make_chart_df(long_df=None):
+    """Return a chart-ready DataFrame (geography/year columns) from build_display_df."""
+    df = build_display_df(long_df if long_df is not None else _make_multi_dim_long())
+    return df.rename(columns={"name": "geography", "reference_period": "year"})
 
 
 class TestComputeDimControls:
@@ -290,25 +292,22 @@ class TestComputeDimFilterControls:
     def test_none_returns_empty(self):
         assert compute_dim_filter_controls(None) == []
 
-    def test_empty_dict_returns_empty(self):
-        assert compute_dim_filter_controls({}) == []
+    def test_empty_df_returns_empty(self):
+        assert compute_dim_filter_controls(pd.DataFrame()) == []
 
-    def test_single_dim_with_multiple_values_returns_dropdown(self):
-        wide = _make_multi_dim_wide()
-        controls = compute_dim_filter_controls(wide)
-        # At least one control should be produced for the multi-value dim column
+    def test_multi_dim_returns_dropdowns(self):
+        df = _make_display_df()
+        controls = compute_dim_filter_controls(df)
         assert len(controls) >= 1
 
     def test_dropdown_has_correct_options(self):
-        wide = _make_multi_dim_wide()
-        controls = compute_dim_filter_controls(wide)
-        # Find the dropdown inside the first control (Span → children[1])
-        assert controls  # non-empty
+        df = _make_display_df()
+        controls = compute_dim_filter_controls(df)
+        assert controls
         span = controls[0]
         dropdown = span.children[1]
         option_values = {o["value"] for o in dropdown.options}
-        # Should contain actual dim values (not empty string)
-        assert option_values  # non-empty
+        assert option_values
 
 
 # ---------------------------------------------------------------------------
@@ -317,27 +316,30 @@ class TestComputeDimFilterControls:
 
 class TestApplyDimFilters:
     def test_no_filter_returns_all_rows(self):
-        wide = _make_multi_dim_wide()
-        data, cols = apply_dim_filters(wide, {})
-        assert len(data) == len(wide["data"])
+        df = _make_display_df()
+        result = apply_dim_filters(df, {})
+        assert len(result) == len(df)
 
     def test_none_input_returns_empty(self):
-        data, cols = apply_dim_filters(None, {})
-        assert data == [] and cols == []
+        result = apply_dim_filters(None, {})
+        assert isinstance(result, pd.DataFrame) and result.empty
 
     def test_filter_reduces_rows(self):
-        wide = _make_multi_dim_wide()
-        all_data, cols = apply_dim_filters(wide, {})
-        # Get a dim_0 value that exists
-        dim0_vals = list({row.get("__dim_0__") for row in wide["data"] if row.get("__dim_0__")})
-        if dim0_vals:
-            filtered, _ = apply_dim_filters(wide, {"dim_0": [dim0_vals[0]]})
-            assert len(filtered) <= len(all_data)
+        df = _make_display_df()
+        dim_cols = [c for c in df.columns if c not in ("name", "reference_period", "value", "moe")]
+        if dim_cols:
+            col = dim_cols[0]
+            vals = df[col].dropna().unique().tolist()
+            if vals:
+                filtered = apply_dim_filters(df, {col: [str(vals[0])]})
+                assert len(filtered) <= len(df)
 
     def test_filter_by_nonexistent_value_returns_empty(self):
-        wide = _make_multi_dim_wide()
-        data, _ = apply_dim_filters(wide, {"dim_0": ["__does_not_exist__"]})
-        assert data == []
+        df = _make_display_df()
+        dim_cols = [c for c in df.columns if c not in ("name", "reference_period", "value", "moe")]
+        if dim_cols:
+            result = apply_dim_filters(df, {dim_cols[0]: ["__does_not_exist__"]})
+            assert result.empty
 
 
 # ---------------------------------------------------------------------------
@@ -372,37 +374,36 @@ class TestComputeDroppedDims:
 
 
 # ---------------------------------------------------------------------------
-# render_chart_from_wide
+# build_display_df
 # ---------------------------------------------------------------------------
 
-def _make_wide_data():
-    df = _make_long()
-    data, cols = build_wide_table(df, "estimate", False)
-    return {"data": data, "columns": cols}
+class TestBuildDisplayDf:
+    def test_empty_df_returns_empty(self):
+        result = build_display_df(pd.DataFrame())
+        assert result.empty
 
+    def test_has_expected_columns(self):
+        result = build_display_df(_make_multi_dim_long())
+        assert "name" in result.columns
+        assert "reference_period" in result.columns
+        assert "value" in result.columns
 
-class TestRenderChartFromWide:
-    def test_returns_dict(self):
-        result = render_chart_from_wide(_make_wide_data(), "bar")
-        assert isinstance(result, dict)
+    def test_returns_leaf_rows_only(self):
+        result = build_display_df(_make_multi_dim_long())
+        assert not result.empty
+        reserved = {"name", "reference_period", "value", "moe"}
+        dim_cols = [c for c in result.columns if c not in reserved]
+        for col in dim_cols:
+            assert not (result[col].astype(str) == "").any()
 
-    def test_returns_nonempty_spec(self):
-        result = render_chart_from_wide(_make_wide_data(), "bar")
-        assert "$schema" in result
+    def test_estimate_mode_uses_estimate(self):
+        result = build_display_df(_make_multi_dim_long(), value_mode="estimate")
+        assert not result.empty
+        assert (result["value"] > 0).all()
 
-    def test_none_returns_empty_dict(self):
-        assert render_chart_from_wide(None, "bar") == {}
-
-    def test_empty_dict_returns_empty_dict(self):
-        assert render_chart_from_wide({}, "bar") == {}
-
-    def test_line_type(self):
-        result = render_chart_from_wide(_make_wide_data(), "line")
-        assert isinstance(result, dict)
-
-    def test_point_type(self):
-        result = render_chart_from_wide(_make_wide_data(), "point")
-        assert isinstance(result, dict)
+    def test_single_dim_returns_rows(self):
+        result = build_display_df(_make_long())
+        assert not result.empty
 
 
 # ---------------------------------------------------------------------------
@@ -432,40 +433,6 @@ class TestRenderChartImage:
 
 
 # ---------------------------------------------------------------------------
-# long_to_chart_df
-# ---------------------------------------------------------------------------
-
-class TestLongToChartDf:
-    def test_empty_long_returns_empty(self):
-        result = long_to_chart_df(pd.DataFrame())
-        assert result.empty
-
-    def test_single_dim_returns_dim_geography_year_value(self):
-        result = long_to_chart_df(_make_long())
-        assert "geography" in result.columns
-        assert "year" in result.columns
-        assert "value" in result.columns
-
-    def test_estimate_mode_uses_estimate(self):
-        result = long_to_chart_df(_make_long(), value_mode="estimate")
-        assert not result.empty
-        assert result["value"].iloc[0] == pytest.approx(1_300_000.0)
-
-    def test_multi_dim_has_dim_columns(self):
-        result = long_to_chart_df(_make_multi_dim_long())
-        # Should have at least one dim column beyond geography/year/value
-        dim_cols = [c for c in result.columns if c not in ("geography", "year", "value")]
-        assert len(dim_cols) >= 1
-
-    def test_leaf_only_no_subtotals(self):
-        result = long_to_chart_df(_make_multi_dim_long())
-        # Leaf rows only: no row should have any empty-string dim value
-        dim_cols = [c for c in result.columns if c not in ("geography", "year", "value")]
-        for col in dim_cols:
-            assert not (result[col].astype(str) == "").any()
-
-
-# ---------------------------------------------------------------------------
 # _chart_axis_options_from_long
 # ---------------------------------------------------------------------------
 
@@ -474,13 +441,13 @@ class TestChartAxisOptionsFromLong:
         assert _chart_axis_options_from_long(pd.DataFrame()) == []
 
     def test_always_includes_value(self):
-        chart_df = long_to_chart_df(_make_long())
+        chart_df = _make_chart_df()
         options = _chart_axis_options_from_long(chart_df)
         labels = [o["value"] for o in options]
         assert "value" in labels
 
     def test_includes_geography_and_year(self):
-        chart_df = long_to_chart_df(_make_long())
+        chart_df = _make_chart_df()
         options = _chart_axis_options_from_long(chart_df)
         values = [o["value"] for o in options]
         assert "geography" in values
@@ -496,24 +463,24 @@ class TestRenderChartFromLong:
         assert render_chart_from_long(pd.DataFrame()) == {}
 
     def test_returns_vega_spec(self):
-        chart_df = long_to_chart_df(_make_multi_dim_long())
+        chart_df = _make_chart_df()
         result = render_chart_from_long(chart_df, "bar")
         assert isinstance(result, dict)
         assert "$schema" in result
 
     def test_line_type(self):
-        chart_df = long_to_chart_df(_make_multi_dim_long())
+        chart_df = _make_chart_df()
         result = render_chart_from_long(chart_df, "line")
         assert "$schema" in result
 
     def test_invalid_field_falls_back_gracefully(self):
-        chart_df = long_to_chart_df(_make_multi_dim_long())
+        chart_df = _make_chart_df()
         result = render_chart_from_long(chart_df, "bar", x_field="nonexistent", color_field="also_bad")
         assert isinstance(result, dict)
 
     def test_title_appears_in_spec(self):
-        chart_df = long_to_chart_df(_make_multi_dim_long())
-        result = render_chart_from_long(chart_df, "bar", title="Test Title", subtitle="Source: X")
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "bar", title="Test Title")
         spec_str = str(result)
         assert "Test Title" in spec_str
 

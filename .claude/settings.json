@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PATH": "/home/user/Documents/Work/Repo/morpc_venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  },
   "permissions": {
     "allow": [
       "Bash(mypy *)",

@@ -255,6 +255,84 @@ def build_wide_table(
     return data, columns
 
 
+def build_display_df(
+    long_df: pd.DataFrame,
+    value_mode: str = "estimate",
+    show_moe: bool = False,
+    dropped_dims: list[str] | None = None,
+) -> pd.DataFrame:
+    """Build a tidy long DataFrame for display directly from CensusAPI.long.
+
+    Returns one row per leaf variable × geography × vintage with columns:
+    dim_0[, dim_1, ...], name, reference_period, value[, moe].
+    Subtotal rows (any dim column is empty string) are excluded.
+    """
+    if long_df.empty or "variable_label" not in long_df.columns:
+        return pd.DataFrame()
+
+    dt = DimensionTable(long_df)
+
+    if dropped_dims:
+        for dim in dropped_dims:
+            method = _choose_drop_method(dt, dim)
+            try:
+                dt = dt.drop(dim, method=method)
+            except Exception as exc:
+                logger.warning("drop(%s, %s) failed: %s — ignoring", dim, method, exc)
+
+    dims_df = dt.dims  # indexed by variable; columns = dim_0, dim_1, ...
+
+    # Leaf: every dim column is non-empty (subtotals have '' in later dims).
+    leaf_vars = set(
+        dims_df.index[dims_df.apply(lambda r: all(str(v) != "" for v in r), axis=1)]
+    )
+
+    long = dt.long[dt.long["variable"].isin(leaf_vars)].copy()
+    if long.empty:
+        return pd.DataFrame()
+
+    # Attach ordered Categorical dim columns.
+    for col in dims_df.columns:
+        clean = dims_df[col].astype(str).str.rstrip(":").str.strip()
+        long[col] = long["variable"].map(clean)
+        cats = list(dict.fromkeys(
+            c for c in (str(v).rstrip(":").strip() for v in dims_df[col].cat.categories)
+            if c
+        ))
+        long[col] = pd.Categorical(long[col], categories=cats, ordered=True)
+
+    # Compute value column.
+    is_pct = value_mode == "percent"
+    if is_pct and len(dims_df.columns) > 1:
+        # Grand total: rows where all dims after dim_0 are empty.
+        total_mask = (dims_df.iloc[:, 1:] == "").all(axis=1)
+        total_vars = set(dims_df.index[total_mask])
+        if total_vars:
+            totals = (
+                dt.long[dt.long["variable"].isin(total_vars)]
+                .sort_values("variable")
+                .groupby(["geoidfq", "reference_period"], observed=True)
+                .first()[["estimate"]]
+                .rename(columns={"estimate": "_total"})
+                .reset_index()
+            )
+            long = long.merge(totals, on=["geoidfq", "reference_period"], how="left")
+            long["value"] = (long["estimate"] / long["_total"] * 100).round(2)
+            long = long.drop(columns=["_total"])
+        else:
+            long["value"] = long["estimate"]
+    else:
+        long["value"] = long["estimate"]
+
+    dim_cols = list(dims_df.columns)
+    keep = dim_cols + ["name", "reference_period", "value"]
+    if show_moe and "moe" in long.columns:
+        keep.append("moe")
+    keep = [c for c in keep if c in long.columns]
+
+    return long[keep].dropna(subset=["value"]).reset_index(drop=True)
+
+
 def serialise_long(df: pd.DataFrame) -> dict:
     """Serialise a long DataFrame to a JSON-safe dict for dcc.Store."""
     return df.to_dict(orient="split")
