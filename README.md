@@ -95,6 +95,15 @@ python -m app.main
 - [x] Chart section: Chart Type selector moved above variable selectors
 - [x] Export buttons include short descriptions of each format
 
+### Phase 7 — Chart overhaul
+
+- [x] Chart data derived from filtered table (not raw long store) so chart always matches displayed rows
+- [x] Dimension columns use human-readable names in chart ("Sex", "Age Group" instead of dim_0)
+- [x] Stacked Bar and Horizontal Bar chart types
+- [x] Aspect ratio slider (0.5× – 2.5×) in sidebar
+- [x] Title format: `{year(s)} {concept} for {geography}` (e.g., "2024 Sex by Age for Franklin County")
+- [x] Source caption rendered at bottom of chart via Vega-Lite vconcat
+
 ---
 
 This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.

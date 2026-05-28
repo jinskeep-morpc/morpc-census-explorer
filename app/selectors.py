@@ -80,6 +80,34 @@ def scope_label(key: str) -> str:
     return key.replace("_", " ").title()
 
 
+def scope_title_name(key: str) -> str:
+    """Return a natural-language geo name for use in chart titles."""
+    scopes = _scopes_map()
+    if key not in scopes:
+        return key.replace("_", " ").title()
+    scope = scopes[key]
+    for_param = getattr(scope, "for_param", "") or ""
+    geo_type = for_param.split(":")[0].strip().lower() if ":" in for_param else ""
+    values_part = for_param.split(":", 1)[-1] if ":" in for_param else ""
+    is_multi = "," in values_part
+    name = key.replace("_", " ").title()
+    if geo_type == "us":
+        return "the United States"
+    if geo_type == "state":
+        return name
+    if geo_type == "county" and not is_multi:
+        return f"{name} County"
+    if geo_type == "county" and is_multi:
+        if key.startswith("region"):
+            suffix = key[len("region"):]
+            return f"{suffix}-County Region" if suffix.isdigit() else f"{suffix.upper()} Region"
+        return f"{name} Region"
+    if "metropolitan" in geo_type or "micropolitan" in geo_type:
+        cbsa_name = key.replace("cbsa", "").replace("_", " ").strip().title()
+        return f"{cbsa_name} Metro Area"
+    return name
+
+
 def _scope_sort_key(key: str, scope) -> tuple[int, str]:
     """Return (category_order, key) so scopes sort as Region, CBSA, Counties, States, US."""
     for_param = getattr(scope, "for_param", "") or ""

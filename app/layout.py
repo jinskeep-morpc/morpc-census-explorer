@@ -173,12 +173,25 @@ def make_layout() -> dbc.Container:
                                             id="chart-type",
                                             options=[
                                                 {"label": "Bar", "value": "bar"},
+                                                {"label": "Stacked Bar", "value": "bar_stacked"},
+                                                {"label": "Horizontal Bar", "value": "bar_horizontal"},
                                                 {"label": "Line", "value": "line"},
                                                 {"label": "Point", "value": "point"},
                                             ],
                                             value="bar",
                                             clearable=False,
                                             className="mb-1",
+                                        ),
+                                        dbc.Label("Aspect ratio", className="small mb-0"),
+                                        dcc.Slider(
+                                            id="chart-aspect-ratio",
+                                            min=0.5,
+                                            max=2.5,
+                                            step=0.25,
+                                            value=1.0,
+                                            marks={0.5: "0.5×", 1.0: "1×", 1.5: "1.5×", 2.0: "2×", 2.5: "2.5×"},
+                                            tooltip={"placement": "bottom", "always_visible": False},
+                                            className="mb-2",
                                         ),
                                         dbc.Row(
                                             [
