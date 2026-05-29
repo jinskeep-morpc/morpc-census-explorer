@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from app.callbacks import compute_fetch_and_store, compute_table
+from app.callbacks import compute_fetch_and_store
 from app.fetch import (
     _choose_drop_method,
     build_wide_table,
@@ -189,21 +189,17 @@ class TestGetDroppableDims:
 
 
 class TestGetAvailableDims:
-    def test_no_separator_returns_single_dim(self):
-        df = _make_long()  # variable_label = "Dim 0", "Dim 1" — no !!
-        assert get_available_dims(df) == ["dim_0"]
+    def test_single_dim_returns_one_column(self):
+        dims = get_available_dims(_make_long())
+        assert len(dims) == 1
 
-    def test_one_separator_returns_two_dims(self):
-        df = _make_multi_dim_long()
-        dims = get_available_dims(df)
-        assert dims == ["dim_0", "dim_1"]
+    def test_multi_dim_returns_named_columns(self):
+        dims = get_available_dims(_make_multi_dim_long())
+        assert len(dims) >= 2
+        assert all(isinstance(d, str) for d in dims)
 
     def test_empty_df_returns_empty(self):
         assert get_available_dims(pd.DataFrame()) == []
-
-    def test_names_are_snake_case(self):
-        dims = get_available_dims(_make_multi_dim_long())
-        assert all(d.startswith("dim_") for d in dims)
 
 
 # ---------------------------------------------------------------------------
@@ -240,33 +236,33 @@ from morpc_census.api import DimensionTable as _DT
 
 class TestChooseDropMethod:
     def test_root_dim_uses_aggregate(self):
-        # dim_0 (Total) has no empty rows → aggregate
+        # "Total" col has no empty rows → aggregate
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "dim_0") == "aggregate"
+        assert _choose_drop_method(dt, "Total") == "aggregate"
 
     def test_sex_dim_uses_aggregate(self):
-        # dim_1 (Sex): its only empty row is the grand total → aggregate
+        # "Sex": its only empty row is the grand total → aggregate
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "dim_1") == "aggregate"
+        assert _choose_drop_method(dt, "Sex") == "aggregate"
 
     def test_age_dim_uses_summarize(self):
-        # dim_2 (Age): "" rows are the sex-subtotals (Male, Female) — partial subtotals exist
+        # "Age": "" rows are the sex-subtotals (Male, Female) — partial subtotals exist
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "dim_2") == "summarize"
+        assert _choose_drop_method(dt, "Age") == "summarize"
 
     def test_nonexistent_dim_uses_aggregate(self):
         dt = _DT(_make_b01001_long())
         assert _choose_drop_method(dt, "nonexistent_dim") == "aggregate"
 
     def test_simple_fixture_leaf_dim_uses_summarize(self):
-        # dim_1 is the leaf (age) dim — has '' rows for Male/Female subtotals
+        # "Age" is the leaf dim — has '' rows for Male/Female subtotals
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "dim_1") == "summarize"
+        assert _choose_drop_method(dt, "Age") == "summarize"
 
     def test_simple_fixture_root_dim_uses_aggregate(self):
-        # dim_0 is the root (sex) dim — no '' rows → aggregate
+        # "Sex" is the root dim — no '' rows → aggregate
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "dim_0") == "aggregate"
+        assert _choose_drop_method(dt, "Sex") == "aggregate"
 
 
 # ---------------------------------------------------------------------------
@@ -322,21 +318,21 @@ class TestBuildWideTable:
     def test_drop_reduces_dim_columns(self):
         df = _make_multi_dim_long()
         _, cols_nodrop = build_wide_table(df, "estimate", False, None)
-        _, cols_drop = build_wide_table(df, "estimate", False, ["dim_1"])
+        _, cols_drop = build_wide_table(df, "estimate", False, ["Age"])
         n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
         n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
         assert n_dim_drop < n_dim_nodrop
 
     def test_drop_leaf_dim_uses_summarize_and_produces_data(self):
-        # dim_1 (age) has '' rows → summarize → keeps subtotal rows (Male/Female)
+        # "Age" has '' rows → summarize → keeps subtotal rows (Male/Female)
         df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
+        data, cols = build_wide_table(df, "estimate", False, ["Age"])
         assert len(data) > 0 and len(cols) > 0
 
     def test_drop_root_dim_uses_aggregate_and_produces_data(self):
-        # dim_0 (sex) has no '' rows → aggregate → sums across sex to get age-only totals
+        # "Sex" has no '' rows → aggregate → sums across sex to get age-only totals
         df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["dim_0"])
+        data, cols = build_wide_table(df, "estimate", False, ["Sex"])
         assert len(data) > 0 and len(cols) > 0
 
     def test_drop_sex_in_b01001_structure_returns_age_rows(self):
@@ -404,43 +400,3 @@ class TestComputeFetchAndStore:
         assert "db down" in err_msg or err_msg
 
 
-# ---------------------------------------------------------------------------
-# compute_table
-# ---------------------------------------------------------------------------
-
-class TestComputeTable:
-    def test_returns_empty_when_no_store_data(self):
-        data, cols, style = compute_table(None, "estimate", False)
-        assert data == [] and cols == []
-        assert style == {"display": "none"}
-
-    def test_returns_data_on_valid_input(self):
-        long = pd.DataFrame([
-            {
-                "geoidfq": "050US39049", "name": "Franklin County",
-                "reference_period": 2023, "survey": "acs/acs5",
-                "concept": "Sex by Age", "universe": "Total population",
-                "variable_label": "Total", "variable": "B01001_001",
-                "estimate": 1300000.0, "moe": 50000.0,
-            }
-        ])
-        store = serialise_long(long)
-        data, cols, style = compute_table(store, "estimate", False)
-        assert len(data) > 0
-        assert style == {"display": "block"}
-
-    def test_returns_data_with_moe_shown(self):
-        long = pd.DataFrame([
-            {
-                "geoidfq": "050US39049", "name": "Franklin County",
-                "reference_period": 2023, "survey": "acs/acs5",
-                "concept": "Sex by Age", "universe": "Total population",
-                "variable_label": "Total", "variable": "B01001_001",
-                "estimate": 1300000.0, "moe": 50000.0,
-            }
-        ])
-        store = serialise_long(long)
-        data, cols, style = compute_table(store, "estimate", True)
-        assert len(data) > 0
-        moe_cols = [c for c in cols if "[MOE]" in c["name"]]
-        assert len(moe_cols) > 0

@@ -20,7 +20,7 @@ from app.callbacks import (
     render_chart_from_long,
     render_chart_image,
 )
-from app.fetch import build_display_df, serialise_long
+from app.fetch import build_display_df, deserialise_long, get_droppable_dims, serialise_long
 
 _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
@@ -271,16 +271,19 @@ class TestComputeDimControls:
         assert len(buttons) >= 2
 
     def test_dropped_dim_not_shown_in_buttons(self):
-        buttons, _ = compute_dim_controls(_make_multi_dim_store(), ["dim_1"])
+        droppable = get_droppable_dims(deserialise_long(_make_multi_dim_store()))
+        dropped = droppable[:1]  # drop the first actual dim name
+        buttons, _ = compute_dim_controls(_make_multi_dim_store(), dropped)
         indices = [b.id["index"] for b in buttons]
-        assert "dim_1" not in indices
+        assert dropped[0] not in indices
 
     def test_reset_hidden_when_nothing_dropped(self):
         _, style = compute_dim_controls(_make_multi_dim_store(), [])
         assert style == {"display": "none"}
 
     def test_reset_visible_when_dim_dropped(self):
-        _, style = compute_dim_controls(_make_multi_dim_store(), ["dim_1"])
+        droppable = get_droppable_dims(deserialise_long(_make_multi_dim_store()))
+        _, style = compute_dim_controls(_make_multi_dim_store(), droppable[:1])
         assert style == {"display": "inline-block"}
 
 

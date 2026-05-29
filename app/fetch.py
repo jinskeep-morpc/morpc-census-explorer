@@ -71,16 +71,13 @@ def fetch_all_geos(
 
 
 def get_available_dims(long_df: pd.DataFrame) -> list[str]:
-    """Return the dim column names DimensionTable would produce from this long DataFrame.
-
-    Derived from the maximum number of ``!!``-delimited parts in ``variable_label``.
-    """
+    """Return the dim column names DimensionTable produces from this long DataFrame."""
     if long_df.empty or "variable_label" not in long_df.columns:
         return []
-    max_count = long_df["variable_label"].str.count("!!").max()
-    if pd.isna(max_count):
+    try:
+        return list(DimensionTable(long_df).dims.columns)
+    except Exception:
         return []
-    return [f"dim_{i}" for i in range(int(max_count) + 1)]
 
 
 def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
