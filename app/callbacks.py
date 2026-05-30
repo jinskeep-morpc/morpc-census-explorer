@@ -626,12 +626,14 @@ def register_callbacks(app: dash.Dash) -> None:
         display_df = build_display_df(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
         if display_df.empty:
             return no_update
-        filters = {
-            fid["index"]: fval
-            for fid, fval in zip(filter_ids or [], filter_values or [])
-            if fval
-        }
-        display_df = apply_dim_filters(display_df, filters)
+        # Ignore stale filter values when a new fetch just landed
+        if dash.ctx.triggered_id != "long-data-store":
+            filters = {
+                fid["index"]: fval
+                for fid, fval in zip(filter_ids or [], filter_values or [])
+                if fval
+            }
+            display_df = apply_dim_filters(display_df, filters)
         if display_df.empty:
             return no_update
 
@@ -716,12 +718,14 @@ def register_callbacks(app: dash.Dash) -> None:
         display_df = build_display_df(long_df, value_mode or "estimate", False, dropped_dims)
         if display_df.empty:
             return {}
-        filters = {
-            fid["index"]: fval
-            for fid, fval in zip(filter_ids or [], filter_values or [])
-            if fval
-        }
-        display_df = apply_dim_filters(display_df, filters)
+        # Ignore stale filter values when a new fetch just landed
+        if dash.ctx.triggered_id != "long-data-store":
+            filters = {
+                fid["index"]: fval
+                for fid, fval in zip(filter_ids or [], filter_values or [])
+                if fval
+            }
+            display_df = apply_dim_filters(display_df, filters)
         if display_df.empty:
             return {}
         chart_df = display_df.rename(columns={"name": "geography", "reference_period": "year"})
