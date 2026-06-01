@@ -1,4 +1,32 @@
-## 2026-06-01 — Chart UI improvements (feature/chart-ui-improvements)
+## Chart UI improvements (issue #33)
+
+Five improvements to chart sidebar and render logic:
+
+1. **Width/height inputs + font size slider** — replaced aspect-ratio slider with Width (in) and Height (in) number inputs (defaults 8x5) and a Font Size slider (8-24, default 12). Chart renders at exactly the specified pixel size (96 px/in). All text scales proportionally from the base font size.
+
+2. **Independent y-axis checkbox** — added "Independent y-axis" checkbox beneath the Facet By dropdown. When checked, each facet panel uses its own y-axis domain via `.resolve_scale(y="independent")`.
+
+3. **Source caption includes group code** — caption reads "... 5-Year Estimates (B01001)" when group_code is provided.
+
+4. **Smart chart title** — new format: `{year} {color} by {x} of {universe} for {geo}`. Universe pulled from long_df; geography omitted from color clause when color=geography.
+
+5. **New chart types** — Percent Bar, Stacked Area, Percent Area. Normalized types use stack="normalize" with ".0%" axis format.
+
+75 tests pass.
+
+## Chart UI improvements (issue #33)
+
+Five improvements to chart sidebar and render logic:
+
+1. **Width/height inputs + font size slider** — replaced aspect-ratio slider with Width (in) and Height (in) number inputs (defaults 8×5) and a Font Size slider (8–24, default 12). Chart renders at exactly the specified pixel size (96 px/in). All text — title, axis labels, legend, caption — scales proportionally from the base font size.
+
+2. **Independent y-axis checkbox** — added "Independent y-axis" checkbox beneath the Facet By dropdown. When checked, calls `.resolve_scale(y="independent")` on the faceted Vega-Lite spec so each panel uses its own y-axis domain.
+
+3. **Source caption includes group code** — `render_chart_from_long` accepts `group_code`; caption reads "… 5-Year Estimates (B01001)" when provided.
+
+4. **Smart chart title** — replaced concept-based title with `_build_chart_title(x_field, color_field, vintages, universe, geo_list)`. Format: `{year} {color} by {x} of {universe} for {geo}`. Geography omitted from color clause (already in "for" suffix); universe pulled from `long_df["universe"]` in the callback.
+
+5. **New chart types** — Percent Bar (`bar_percent`), Stacked Area (`area_stacked`), Percent Area (`area_percent`). Normalized types use `stack="normalize"` with `".0## 2026-06-01 — Chart UI improvements (feature/chart-ui-improvements)
 
 Replaced the aspect-ratio slider with explicit width (in) and height (in) inputs plus a font-size slider so every chart text element scales from a single base value. Added an independent y-axis checkbox for faceted charts. The source caption now appends the group code. Rewrote `_build_chart_title` to derive the title from the selected x/color axes, universe, and geography rather than the group dropdown label. Added three new chart types: Percent Bar, Stacked Area, and Percent Area. Removed the `group_options` State from the chart callback since the new title logic no longer needs it.
 
