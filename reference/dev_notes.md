@@ -2,6 +2,10 @@
 
 `render_table` was returning `no_update` when `store_data` was falsy or when `build_table_df` returned empty data, allowing stale UI to persist across fetches. Changed both returns to `html.Div()` so the table is always cleared when there is nothing to show. The chart callback already returned `{}` (clear) for empty cases. No `allow_duplicate` approach was needed — the simpler empty-return fix is sufficient.
 
+## 2026-06-01 — Chart UI improvements (feature/chart-ui-improvements)
+
+Replaced the aspect-ratio slider with explicit width (in) and height (in) inputs plus a font-size number input (all in one row at the bottom of the chart section) so every chart text element scales from a single base value. Added an independent y-axis checkbox for faceted charts. The source caption now appends the group code. Rewrote `_build_chart_title` to derive the title from the selected x/color axes, universe, and geography rather than the group dropdown label. Added three new chart types: Percent Bar, Stacked Area, and Percent Area. Removed the `group_options` State from the chart callback since the new title logic no longer needs it.
+
 ## Rewrite display table and chart to use DimensionTable directly (issue #31)
 
 Replaced `build_wide_table` and `build_display_df` (and the broken `_is_leaf_var`) with two
