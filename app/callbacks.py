@@ -631,7 +631,7 @@ def register_callbacks(app: dash.Dash) -> None:
     )
     def render_table(store_data, value_mode, show_moe, dropped_dims, filter_values, filter_ids):
         if not store_data:
-            return no_update
+            return html.Div()
         long_df = deserialise_long(store_data)
         filters = {}
         if dash.ctx.triggered_id != "long-data-store":
@@ -648,7 +648,7 @@ def register_callbacks(app: dash.Dash) -> None:
             dim_filters=filters or None,
         )
         if not data:
-            return no_update
+            return html.Div()
         return dash_table.DataTable(
             data=data,
             columns=columns,
