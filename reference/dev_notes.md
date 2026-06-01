@@ -1,3 +1,7 @@
+## 2026-06-01 — Sidebar accordion with numbered steps and info tooltips (issue #39)
+
+Replaced the flat scrolling sidebar with a `dbc.Accordion` (`always_open=True`) with five numbered step panels: 1. Select Data, 2. Select Geography, 3. Select Data Type, 4. Configure Chart, 5. Export. Steps 1 and 2 open by default; others collapsed. Added ⓘ superscript info tooltips on every label (Topic, Group, Vintage, Scope, Sumlevel, Values, MOE, Chart type, X/Y axis, Color by, Facet by, Width/Height/Font size). Added Independent x-axis checkbox beneath Facet by (alongside the existing Independent y-axis) and wired it through callbacks and `render_chart_from_long`. Fixed dropdown z-index clipping by setting `z-index: 200` on the sticky sidebar wrapper and `overflow: visible` on accordion items.
+
 ## 2026-06-01 — Remove _choose_drop_method from explorer (issue #37)
 
 `DimensionTable.drop()` now auto-detects whether to filter or aggregate (morpc-census #95), so the explorer's `_choose_drop_method` helper and all `method=` arguments to `dt.drop()` are no longer needed. Removed from `app/fetch.py`, `app/callbacks.py`, and `tests/test_fetch.py` (TestChooseDropMethod → TestHasPartialSubtotals now tests the library method directly).

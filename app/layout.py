@@ -7,6 +7,25 @@ from dash import dcc, html
 from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
 
 
+def _tip(label_text, tip_id, tooltip_text, label_cls="fw-semibold mb-1 small"):
+    """Return [Label-with-info-icon, Tooltip] for use in accordion item children."""
+    return [
+        dbc.Label(
+            [
+                label_text,
+                " ",
+                html.Sup(
+                    "ⓘ",
+                    id=tip_id,
+                    style={"cursor": "help", "color": "#6c757d", "fontSize": "0.7em"},
+                ),
+            ],
+            className=label_cls,
+        ),
+        dbc.Tooltip(tooltip_text, target=tip_id, placement="right"),
+    ]
+
+
 def make_layout() -> dbc.Container:
     return dbc.Container(
         [
@@ -34,313 +53,414 @@ def make_layout() -> dbc.Container:
                     # ── Sidebar ──────────────────────────────────────────────
                     dbc.Col(
                         html.Div(
-                            dbc.Card(
-                                dbc.CardBody(
+                            [
+                                # Error alert — always visible above the accordion
+                                dbc.Alert(
+                                    id="fetch-error-alert",
+                                    color="danger",
+                                    is_open=False,
+                                    dismissable=True,
+                                    className="p-2 mb-2 small",
+                                ),
+
+                                dbc.Accordion(
                                     [
-                                        # Error alert (lives in sidebar, near fetch button)
-                                        dbc.Alert(
-                                            id="fetch-error-alert",
-                                            color="danger",
-                                            is_open=False,
-                                            dismissable=True,
-                                            className="p-2 mb-2 small",
-                                        ),
-
-                                        # Data selection
-                                        dbc.Label("Topic", className="fw-semibold mb-1 small"),
-                                        dcc.Dropdown(
-                                            id="topic-dropdown",
-                                            options=topic_options(),
-                                            placeholder="Select a topic…",
-                                            clearable=True,
-                                            className="mb-2",
-                                        ),
-
-                                        dbc.Label("Group", className="fw-semibold mb-1 small"),
-                                        dcc.Dropdown(
-                                            id="group-dropdown",
-                                            options=[],
-                                            placeholder="Select a topic first…",
-                                            clearable=True,
-                                            disabled=True,
-                                            className="mb-2",
-                                        ),
-
-                                        dbc.Label("Vintage(s)", className="fw-semibold mb-1 small"),
-                                        dcc.Dropdown(
-                                            id="vintage-dropdown",
-                                            options=vintage_options(),
-                                            placeholder="One or more…",
-                                            multi=True,
-                                            className="mb-2",
-                                        ),
-
-                                        dbc.Row(
+                                        # ── Step 1: Select Data ──────────────
+                                        dbc.AccordionItem(
                                             [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Scope", className="fw-semibold mb-1 small"),
-                                                        dcc.Dropdown(
-                                                            id="scope-dropdown",
-                                                            options=scope_options(),
-                                                            placeholder="Scope…",
-                                                            clearable=True,
-                                                        ),
-                                                    ]
+                                                *_tip(
+                                                    "Topic", "tip-topic",
+                                                    "A broad Census subject area (e.g., Demographics, Housing, Economics) "
+                                                    "that groups related data tables.",
                                                 ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Sumlevel", className="fw-semibold mb-1 small"),
-                                                        dcc.Dropdown(
-                                                            id="sumlevel-dropdown",
-                                                            options=sumlevel_options(),
-                                                            placeholder="Level…",
-                                                            clearable=True,
-                                                        ),
-                                                    ]
+                                                dcc.Dropdown(
+                                                    id="topic-dropdown",
+                                                    options=topic_options(),
+                                                    placeholder="Select a topic…",
+                                                    clearable=True,
+                                                    className="mb-2",
+                                                ),
+
+                                                *_tip(
+                                                    "Group", "tip-group",
+                                                    "A specific Census data table within the topic (e.g., B01001 — Sex by Age). "
+                                                    "Each group contains a set of related variables.",
+                                                ),
+                                                dcc.Dropdown(
+                                                    id="group-dropdown",
+                                                    options=[],
+                                                    placeholder="Select a topic first…",
+                                                    clearable=True,
+                                                    disabled=True,
+                                                    className="mb-2",
+                                                ),
+
+                                                *_tip(
+                                                    "Vintage(s)", "tip-vintage",
+                                                    "The survey year(s) to retrieve. ACS 5-year estimates are rolling "
+                                                    "averages published annually — select multiple years to compare across time.",
+                                                ),
+                                                dcc.Dropdown(
+                                                    id="vintage-dropdown",
+                                                    options=vintage_options(),
+                                                    placeholder="One or more…",
+                                                    multi=True,
                                                 ),
                                             ],
-                                            className="mb-2",
+                                            title="1. Select Data",
+                                            item_id="step-data",
                                         ),
 
-                                        dbc.Button(
-                                            "+ Add Geography",
-                                            id="add-geo-btn",
-                                            color="secondary",
-                                            outline=True,
-                                            size="sm",
-                                            className="w-100 mb-2",
-                                        ),
-                                        html.Div(id="geo-chips", className="mb-2"),
-
-                                        dbc.Row(
+                                        # ── Step 2: Select Geography ──────────
+                                        dbc.AccordionItem(
                                             [
-                                                dbc.Col(
-                                                    dbc.Button(
-                                                        "Fetch Data",
-                                                        id="fetch-button",
-                                                        color="primary",
-                                                        size="sm",
-                                                        disabled=True,
-                                                        className="w-100",
-                                                    ),
-                                                    width=7,
-                                                ),
-                                                dbc.Col(
-                                                    dcc.Loading(
-                                                        html.Small(
-                                                            id="fetch-status",
-                                                            className="text-muted d-block",
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Scope", "tip-scope",
+                                                                    "The geographic area to query (e.g., a county, "
+                                                                    "a multi-county region, or a state).",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="scope-dropdown",
+                                                                    options=scope_options(),
+                                                                    placeholder="Scope…",
+                                                                    clearable=True,
+                                                                ),
+                                                            ]
                                                         ),
-                                                        type="circle",
-                                                        color="var(--morpc-green)",
-                                                        style={"display": "inline-block"},
-                                                    ),
-                                                    width=5,
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Sumlevel", "tip-sumlevel",
+                                                                    "The level of geographic detail to return within the scope "
+                                                                    "(e.g., county-level or tract-level summaries).",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="sumlevel-dropdown",
+                                                                    options=sumlevel_options(),
+                                                                    placeholder="Level…",
+                                                                    clearable=True,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    className="mb-2",
+                                                ),
+
+                                                dbc.Button(
+                                                    "+ Add Geography",
+                                                    id="add-geo-btn",
+                                                    color="secondary",
+                                                    outline=True,
+                                                    size="sm",
+                                                    className="w-100 mb-2",
+                                                ),
+                                                html.Div(id="geo-chips", className="mb-2"),
+
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            dbc.Button(
+                                                                "Fetch Data",
+                                                                id="fetch-button",
+                                                                color="primary",
+                                                                size="sm",
+                                                                disabled=True,
+                                                                className="w-100",
+                                                            ),
+                                                            width=7,
+                                                        ),
+                                                        dbc.Col(
+                                                            dcc.Loading(
+                                                                html.Small(
+                                                                    id="fetch-status",
+                                                                    className="text-muted d-block",
+                                                                ),
+                                                                type="circle",
+                                                                color="var(--morpc-green)",
+                                                                style={"display": "inline-block"},
+                                                            ),
+                                                            width=5,
+                                                        ),
+                                                    ],
+                                                    align="center",
                                                 ),
                                             ],
-                                            align="center",
+                                            title="2. Select Geography",
+                                            item_id="step-geo",
                                         ),
 
-                                        html.Hr(className="my-2"),
-
-                                        # Display options
-                                        dbc.Label("Table view", className="fw-semibold mb-1 small"),
-                                        dbc.RadioItems(
-                                            id="value-mode-radio",
-                                            options=[
-                                                {"label": "Estimate", "value": "estimate"},
-                                                {"label": "Percent", "value": "percent"},
-                                            ],
-                                            value="estimate",
-                                            inline=True,
-                                            className="mb-1 small",
-                                        ),
-                                        dbc.Checkbox(
-                                            id="show-moe-checkbox",
-                                            label="Display MOE",
-                                            value=False,
-                                            className="mb-2 small",
-                                        ),
-
-                                        html.Hr(className="my-2"),
-
-                                        # Chart options
-                                        dbc.Label("Chart", className="fw-semibold mb-1 small"),
-                                        dbc.Label("Chart type", className="small mb-0"),
-                                        dcc.Dropdown(
-                                            id="chart-type",
-                                            options=[
-                                                {"label": "Bar", "value": "bar"},
-                                                {"label": "Stacked Bar", "value": "bar_stacked"},
-                                                {"label": "Horizontal Bar", "value": "bar_horizontal"},
-                                                {"label": "Line", "value": "line"},
-                                                {"label": "Point", "value": "point"},
-                                                {"label": "Percent Bar", "value": "bar_percent"},
-                                                {"label": "Stacked Area", "value": "area_stacked"},
-                                                {"label": "Percent Area", "value": "area_percent"},
-                                            ],
-                                            value="bar",
-                                            clearable=False,
-                                            className="mb-1",
-                                        ),
-                                        dbc.Row(
+                                        # ── Step 3: Select Data Type ──────────
+                                        dbc.AccordionItem(
                                             [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("X axis", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-x-axis",
-                                                            options=[],
-                                                            value=None,
-                                                            clearable=False,
-                                                        ),
-                                                    ]
+                                                *_tip(
+                                                    "Values", "tip-values",
+                                                    "Estimate shows raw Census counts. Percent expresses each row "
+                                                    "as a share of the universe total.",
                                                 ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Y axis", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-y-axis",
-                                                            options=[],
-                                                            value=None,
-                                                            clearable=False,
-                                                        ),
-                                                    ]
+                                                dbc.RadioItems(
+                                                    id="value-mode-radio",
+                                                    options=[
+                                                        {"label": "Estimate", "value": "estimate"},
+                                                        {"label": "Percent", "value": "percent"},
+                                                    ],
+                                                    value="estimate",
+                                                    inline=True,
+                                                    className="mb-2 small",
                                                 ),
-                                            ],
-                                            className="mb-1 g-1",
-                                        ),
-                                        dbc.Row(
-                                            [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Color by", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-color-by",
-                                                            options=[],
-                                                            value=None,
-                                                            clearable=True,
-                                                        ),
-                                                    ]
+                                                *_tip(
+                                                    "Margin of Error", "tip-moe",
+                                                    "Show the Margin of Error alongside each estimate. "
+                                                    "MOE indicates the range of statistical uncertainty at the 90% confidence level.",
+                                                    label_cls="mb-1 small",
                                                 ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Facet by", className="small mb-0"),
-                                                        dcc.Dropdown(
-                                                            id="chart-facet",
-                                                            options=[],
-                                                            value=None,
-                                                            clearable=True,
-                                                            placeholder="None",
-                                                        ),
-                                                    ]
+                                                dbc.Checkbox(
+                                                    id="show-moe-checkbox",
+                                                    label="Display MOE",
+                                                    value=False,
+                                                    className="small",
                                                 ),
                                             ],
-                                            className="mb-1 g-1",
-                                        ),
-                                        dbc.Checkbox(
-                                            id="chart-facet-independent-y",
-                                            label="Independent y-axis",
-                                            value=False,
-                                            className="mb-1 small",
-                                        ),
-                                        dbc.Row(
-                                            [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Width (in)", className="small mb-0"),
-                                                        dbc.Input(
-                                                            id="chart-width",
-                                                            type="number",
-                                                            value=8,
-                                                            min=2,
-                                                            max=24,
-                                                            step=0.5,
-                                                            className="mb-1",
-                                                        ),
-                                                    ]
-                                                ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Height (in)", className="small mb-0"),
-                                                        dbc.Input(
-                                                            id="chart-height",
-                                                            type="number",
-                                                            value=5,
-                                                            min=2,
-                                                            max=16,
-                                                            step=0.5,
-                                                            className="mb-1",
-                                                        ),
-                                                    ]
-                                                ),
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Label("Font size", className="small mb-0"),
-                                                        dbc.Input(
-                                                            id="chart-font-size",
-                                                            type="number",
-                                                            value=12,
-                                                            min=8,
-                                                            max=24,
-                                                            step=1,
-                                                            className="mb-1",
-                                                        ),
-                                                    ]
-                                                ),
-                                            ],
-                                            className="mb-1 g-1",
+                                            title="3. Select Data Type",
+                                            item_id="step-table",
                                         ),
 
-                                        html.Hr(className="my-2"),
-
-                                        # Export
-                                        dbc.Label("Export", className="fw-semibold mb-1 small"),
-                                        dbc.Row(
+                                        # ── Step 4: Configure Chart ───────────
+                                        dbc.AccordionItem(
                                             [
-                                                dbc.Col(
-                                                    [
-                                                        dbc.Button(
-                                                            "Frictionless",
-                                                            id="export-frictionless-btn",
-                                                            color="secondary",
-                                                            outline=True,
-                                                            size="sm",
-                                                            className="w-100 mb-1",
-                                                        ),
-                                                        html.Small(
-                                                            "CSV + metadata descriptor (datapackage.json)",
-                                                            className="text-muted",
-                                                        ),
-                                                    ]
+                                                *_tip(
+                                                    "Chart type", "tip-chart-type",
+                                                    "The visual form of the chart. Bar charts compare categories; "
+                                                    "line and area charts show trends over time; stacked and percent "
+                                                    "variants show composition.",
                                                 ),
-                                                dbc.Col(
+                                                dcc.Dropdown(
+                                                    id="chart-type",
+                                                    options=[
+                                                        {"label": "Bar", "value": "bar"},
+                                                        {"label": "Stacked Bar", "value": "bar_stacked"},
+                                                        {"label": "Horizontal Bar", "value": "bar_horizontal"},
+                                                        {"label": "Line", "value": "line"},
+                                                        {"label": "Point", "value": "point"},
+                                                        {"label": "Percent Bar", "value": "bar_percent"},
+                                                        {"label": "Stacked Area", "value": "area_stacked"},
+                                                        {"label": "Percent Area", "value": "area_percent"},
+                                                    ],
+                                                    value="bar",
+                                                    clearable=False,
+                                                    className="mb-2",
+                                                ),
+                                                dbc.Row(
                                                     [
-                                                        dbc.Button(
-                                                            "Excel (.xlsx)",
-                                                            id="export-excel-btn",
-                                                            color="secondary",
-                                                            outline=True,
-                                                            size="sm",
-                                                            className="w-100 mb-1",
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "X axis", "tip-x-axis",
+                                                                    "The variable displayed along the horizontal axis.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="chart-x-axis",
+                                                                    options=[],
+                                                                    value=None,
+                                                                    clearable=False,
+                                                                ),
+                                                            ]
                                                         ),
-                                                        html.Small(
-                                                            "Workbook with data table and chart",
-                                                            className="text-muted",
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Y axis", "tip-y-axis",
+                                                                    "The variable plotted on the vertical axis — "
+                                                                    "typically the estimate or calculated value.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="chart-y-axis",
+                                                                    options=[],
+                                                                    value=None,
+                                                                    clearable=False,
+                                                                ),
+                                                            ]
                                                         ),
-                                                    ]
+                                                    ],
+                                                    className="mb-2 g-1",
+                                                ),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Color by", "tip-color-by",
+                                                                    "Split the chart by this variable, assigning a "
+                                                                    "distinct color to each of its values.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="chart-color-by",
+                                                                    options=[],
+                                                                    value=None,
+                                                                    clearable=True,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Facet by", "tip-facet-by",
+                                                                    "Create a separate sub-panel for each value of "
+                                                                    "this variable.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dcc.Dropdown(
+                                                                    id="chart-facet",
+                                                                    options=[],
+                                                                    value=None,
+                                                                    clearable=True,
+                                                                    placeholder="None",
+                                                                    className="mb-1",
+                                                                ),
+                                                                dbc.Checkbox(
+                                                                    id="chart-facet-independent-y",
+                                                                    label="Independent y-axis",
+                                                                    value=False,
+                                                                    className="small",
+                                                                ),
+                                                                dbc.Checkbox(
+                                                                    id="chart-facet-independent-x",
+                                                                    label="Independent x-axis",
+                                                                    value=False,
+                                                                    className="small",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    className="mb-2 g-1",
+                                                ),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Width (in)", "tip-width",
+                                                                    "Chart width in inches, rendered at 96 px per inch.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dbc.Input(
+                                                                    id="chart-width",
+                                                                    type="number",
+                                                                    value=8,
+                                                                    min=2,
+                                                                    max=24,
+                                                                    step=0.5,
+                                                                    className="mb-1",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Height (in)", "tip-height",
+                                                                    "Chart height in inches, rendered at 96 px per inch.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dbc.Input(
+                                                                    id="chart-height",
+                                                                    type="number",
+                                                                    value=5,
+                                                                    min=2,
+                                                                    max=16,
+                                                                    step=0.5,
+                                                                    className="mb-1",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                *_tip(
+                                                                    "Font size", "tip-font-size",
+                                                                    "Base font size in points for all chart text. "
+                                                                    "Titles scale at 1.3×, axis labels at 1.0×, captions at 0.8×.",
+                                                                    label_cls="small mb-0",
+                                                                ),
+                                                                dbc.Input(
+                                                                    id="chart-font-size",
+                                                                    type="number",
+                                                                    value=12,
+                                                                    min=8,
+                                                                    max=24,
+                                                                    step=1,
+                                                                    className="mb-1",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    className="g-1",
                                                 ),
                                             ],
-                                            className="mb-2 g-2",
+                                            title="4. Configure Chart",
+                                            item_id="step-chart",
+                                        ),
+
+                                        # ── Step 5: Export ────────────────────
+                                        dbc.AccordionItem(
+                                            [
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Button(
+                                                                    "Frictionless",
+                                                                    id="export-frictionless-btn",
+                                                                    color="secondary",
+                                                                    outline=True,
+                                                                    size="sm",
+                                                                    className="w-100 mb-1",
+                                                                ),
+                                                                html.Small(
+                                                                    "CSV + metadata descriptor",
+                                                                    className="text-muted",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Button(
+                                                                    "Excel (.xlsx)",
+                                                                    id="export-excel-btn",
+                                                                    color="secondary",
+                                                                    outline=True,
+                                                                    size="sm",
+                                                                    className="w-100 mb-1",
+                                                                ),
+                                                                html.Small(
+                                                                    "Workbook with table and chart",
+                                                                    className="text-muted",
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    className="g-2",
+                                                ),
+                                            ],
+                                            title="5. Export",
+                                            item_id="step-export",
                                         ),
                                     ],
-                                    className="p-2",
+                                    id="sidebar-accordion",
+                                    active_item=["step-data", "step-geo"],
+                                    always_open=True,
+                                    flush=True,
+                                    className="border rounded",
                                 ),
-                            ),
+                            ],
                             style={
                                 "position": "sticky",
                                 "top": "1rem",
+                                "zIndex": 200,
                             },
                         ),
                         md=3,

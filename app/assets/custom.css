@@ -72,9 +72,16 @@
 }
 
 /* ── Dropdown menus — render above DataTable and Vega chart ─────── */
-/* The sidebar had overflow:auto which clipped absolute-pos menus;
-   removing that fixed clipping. The z-index here handles stacking
-   against the chart/table in the sibling column. */
+/* Accordion items use position:relative, which creates a stacking
+   context that clips absolute-positioned dropdown menus. Making the
+   accordion body overflow:visible lets menus escape their section.
+   The sidebar wrapper carries z-index:200 so the entire sidebar
+   (and its open menus) stacks above the main content column. */
+.accordion-body,
+.accordion-item {
+  overflow: visible !important;
+}
+
 .Select-menu-outer,
 .VirtualizedSelectMenu,
 .dash-dropdown .Select-menu-outer {
