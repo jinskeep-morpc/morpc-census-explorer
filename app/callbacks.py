@@ -260,6 +260,8 @@ def compute_frictionless_download(
     geo_list: list[dict] | None,
     chart_spec: dict | None = None,
     group_options: list[dict] | None = None,
+    dropped_dims: list[str] | None = None,
+    value_mode: str | None = None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for frictionless zip, or None on error."""
     if not store_data or not group_code or not vintages or not geo_list:
@@ -278,6 +280,8 @@ def compute_frictionless_download(
             long_df, group_code, vintages, scope, sumlevel,
             chart_spec=chart_spec or None,
             title=title,
+            dropped_dims=dropped_dims or None,
+            value_mode=value_mode or "estimate",
         )
         vintage_str = "_".join(str(v) for v in sorted(vintages))
         filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
@@ -827,10 +831,12 @@ def register_callbacks(app: dash.Dash) -> None:
         State("geo-list-store", "data"),
         State("chart-image", "spec"),
         State("group-dropdown", "options"),
+        State("dropped-dims-store", "data"),
+        State("value-mode-radio", "value"),
         prevent_initial_call=True,
     )
-    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list, chart_spec, group_options):
-        return compute_frictionless_download(store_data, group_code, vintages, geo_list, chart_spec, group_options)
+    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode):
+        return compute_frictionless_download(store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode)
 
     @app.callback(
         Output("download-excel", "data"),

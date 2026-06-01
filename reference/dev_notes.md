@@ -1,3 +1,7 @@
+## 2026-06-01 — Rich frictionless data package export (#41)
+
+Expanded export_frictionless to produce a full data package: raw long CSV + schema/resource YAMLs, dimension table (flat wide CSV after drops) + schema/resource YAMLs, Vega-Lite chart spec JSON, rendered SVG. datapackage.yaml now includes rich metadata: concept, universe, survey, geography list, vintages, CC-BY-4.0 license, MORPC contributor, and inline resource entries for both long data and dimension table. Callback now passes dropped_dims and value_mode states so the exported table reflects user's current view.
+
 ## 2026-06-01 — Sidebar accordion with numbered steps and info tooltips (issue #39)
 
 Replaced the flat scrolling sidebar with a `dbc.Accordion` (`always_open=True`) with five numbered step panels: 1. Select Data, 2. Select Geography, 3. Select Data Type, 4. Configure Chart, 5. Export. Steps 1 and 2 open by default; others collapsed. Added ⓘ superscript info tooltips on every label (Topic, Group, Vintage, Scope, Sumlevel, Values, MOE, Chart type, X/Y axis, Color by, Facet by, Width/Height/Font size). Added Independent x-axis checkbox beneath Facet by (alongside the existing Independent y-axis) and wired it through callbacks and `render_chart_from_long`. Fixed dropdown z-index clipping by setting `z-index: 200` on the sticky sidebar wrapper and `overflow: visible` on accordion items.

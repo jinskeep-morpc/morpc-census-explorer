@@ -173,6 +173,33 @@ class TestExportFrictionless:
         assert "resources" in pkg
         assert "sources" in pkg
 
+    def test_zip_contains_table_csv(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert any(n.endswith(".table.csv") for n in names)
+
+    def test_zip_contains_table_schema(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert any(n.endswith(".table.schema.yaml") for n in names)
+
+    def test_zip_contains_table_resource(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            names = zf.namelist()
+        assert any(n.endswith(".table.resource.yaml") for n in names)
+
+    def test_datapackage_has_long_and_table_resources(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            import yaml
+            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+        resource_names = [r["name"] for r in pkg["resources"]]
+        assert "long-data" in resource_names
+        assert "dimension-table" in resource_names
+
     def test_zip_contains_vega_spec_when_provided(self):
         import altair as alt
         df2 = pd.DataFrame({"x": ["A"], "y": [1.0]})
@@ -180,7 +207,7 @@ class TestExportFrictionless:
         result = _export_frictionless_mocked(_make_long(), chart_spec=spec)
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert "chart-spec.vega.json" in names
+        assert any(n.endswith(".chart.vega.json") for n in names)
 
     def test_zip_contains_svg_when_spec_provided(self):
         import altair as alt
@@ -189,14 +216,36 @@ class TestExportFrictionless:
         result = _export_frictionless_mocked(_make_long(), chart_spec=spec)
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert "chart.svg" in names
+        assert any(n.endswith(".chart.svg") for n in names)
 
     def test_no_vega_files_when_no_spec(self):
         result = _export_frictionless_mocked(_make_long(), chart_spec=None)
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert "chart-spec.vega.json" not in names
-        assert "chart.svg" not in names
+        assert not any(n.endswith(".chart.vega.json") for n in names)
+        assert not any(n.endswith(".chart.svg") for n in names)
+
+    def test_datapackage_includes_concept_and_universe(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            import yaml
+            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+        assert pkg.get("_concept") == "Sex by Age"
+        assert "Total population" in pkg.get("_universe", "")
+
+    def test_datapackage_includes_geographies(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            import yaml
+            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+        assert "Franklin County" in pkg.get("_geographies", [])
+
+    def test_datapackage_includes_license(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            import yaml
+            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+        assert any("CC-BY" in lic.get("name", "") for lic in pkg.get("licenses", []))
 
 
 # ---------------------------------------------------------------------------
