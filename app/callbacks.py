@@ -714,7 +714,7 @@ def register_callbacks(app: dash.Dash) -> None:
         if not store_data:
             return {}
         long_df = deserialise_long(store_data)
-        chart_df = build_chart_df(long_df, dropped_dims)
+        chart_df = build_chart_df(long_df, dropped_dims, value_mode=value_mode or "estimate")
         if chart_df.empty:
             return {}
         if dash.ctx.triggered_id != "long-data-store":

@@ -466,12 +466,12 @@ class TestBuildChartDf:
             assert col in result.columns
             assert hasattr(result[col], "cat") and result[col].cat.ordered
 
-    def test_empty_string_not_nan_for_subtotals(self):
+    def test_no_empty_string_in_dim_cols(self):
         result = build_chart_df(_make_multi_dim_long())
         from morpc_census.api import DimensionTable
         dim_cols = list(DimensionTable(_make_multi_dim_long()).dims.columns)
         for col in dim_cols:
-            assert not result[col].isna().any()
+            assert not (result[col].astype(str) == "").any()
 
     def test_dropped_dims_reduce_dim_columns(self):
         full = build_chart_df(_make_multi_dim_long())

@@ -239,12 +239,14 @@ def build_table_df(
 def build_chart_df(
     long_df: pd.DataFrame,
     dropped_dims: list[str] | None = None,
+    value_mode: str = "estimate",
 ) -> pd.DataFrame:
     """Build a long DataFrame for charting by joining DimensionTable dims to long data.
 
     Returns columns: [dim_cols..., 'name', 'reference_period', 'estimate'].
-    Dim columns are ordered Categorical; empty string ('') represents subtotal rows.
-    No leaf filtering — caller controls visibility via dim filter dropdowns.
+    Dim columns are ordered Categorical. Subtotal rows (any dim is '') are excluded.
+    When value_mode='percent', estimates are expressed as a percentage of the grand total
+    per geography and vintage.
     """
     if long_df.empty or "variable_label" not in long_df.columns:
         return pd.DataFrame()
@@ -267,9 +269,47 @@ def build_chart_df(
         long_copy[col] = pd.Categorical(long_copy[col], categories=cats, ordered=True)
 
     dim_cols = list(dt.dims.columns)
+
+    # Drop subtotal rows — rows where any dim column is "" have no meaningful
+    # label for that dimension and would appear as blank entries on chart axes.
+    if dim_cols:
+        mask = pd.concat(
+            [long_copy[col].astype(str) != "" for col in dim_cols], axis=1
+        ).all(axis=1)
+        long_copy = long_copy[mask]
+
+    if value_mode == "percent" and len(dt.dims.columns) > 0:
+        # Grand total: the variable(s) where all dims after the first are "".
+        total_mask = (dt.dims.iloc[:, 1:] == "").all(axis=1) if len(dt.dims.columns) > 1 else pd.Series(True, index=dt.dims.index)
+        total_vars = set(dt.dims.index[total_mask])
+        if total_vars:
+            totals = (
+                dt.long[dt.long["variable"].isin(total_vars)]
+                .groupby(["geoidfq", "reference_period"], observed=True)
+                .first()[["estimate"]]
+                .rename(columns={"estimate": "_total"})
+                .reset_index()
+            )
+            long_copy = long_copy.merge(totals, on=["geoidfq", "reference_period"], how="left")
+            long_copy["estimate"] = (long_copy["estimate"] / long_copy["_total"] * 100).round(2)
+            long_copy = long_copy.drop(columns=["_total"])
+
     keep = dim_cols + ["name", "reference_period", "estimate"]
     keep = [c for c in keep if c in long_copy.columns]
-    return long_copy[keep].reset_index(drop=True)
+    result = long_copy[keep].reset_index(drop=True)
+
+    # Convert reference_period to an ordered Categorical of strings so Vega-Lite
+    # treats year as ordinal ("O") rather than quantitative ("Q"). This ensures
+    # only the fetched years appear on the axis with no numeric interpolation.
+    if "reference_period" in result.columns:
+        years = sorted(result["reference_period"].dropna().unique())
+        result["reference_period"] = pd.Categorical(
+            result["reference_period"].astype(str),
+            categories=[str(y) for y in years],
+            ordered=True,
+        )
+
+    return result
 
 
 def serialise_long(df: pd.DataFrame) -> dict:
