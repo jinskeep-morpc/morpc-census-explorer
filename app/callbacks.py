@@ -17,12 +17,15 @@ import dash_bootstrap_components as dbc
 from app.db import SessionLocal
 from app.exports import export_excel, export_frictionless
 from app.fetch import (
-    build_display_df,
+    _choose_drop_method,
+    build_chart_df,
+    build_table_df,
     deserialise_long,
     fetch_all_geos,
     get_droppable_dims,
     serialise_long,
 )
+from morpc_census.api import DimensionTable
 from app.selectors import group_options_for_topic, scope_label
 
 
@@ -116,22 +119,17 @@ def compute_dim_controls(
     return buttons, reset_style
 
 
-def compute_dim_filter_controls(display_df: pd.DataFrame | None) -> list:
-    """Return a Dropdown for each dim column in display_df that has more than one unique value."""
-    if display_df is None or (isinstance(display_df, pd.DataFrame) and display_df.empty):
-        return []
-    reserved = {"name", "reference_period", "value", "moe"}
-    dim_cols = [c for c in display_df.columns if c not in reserved]
-    if not dim_cols:
+def compute_dim_filter_controls(dims_df: "pd.DataFrame | None") -> list:
+    """Return a Dropdown for each dim column in dims_df that has more than one unique value."""
+    if dims_df is None or (isinstance(dims_df, pd.DataFrame) and dims_df.empty):
         return []
     controls = []
-    for col in dim_cols:
-        s = display_df[col]
+    for col in dims_df.columns:
+        s = dims_df[col]
         if hasattr(s, "cat") and s.cat.ordered:
-            present = set(s.dropna().astype(str))
-            unique_vals = [v for v in (str(c) for c in s.cat.categories) if v in present]
+            unique_vals = [str(v) for v in s.cat.categories if str(v) != ""]
         else:
-            unique_vals = sorted(str(v) for v in s.dropna().unique())
+            unique_vals = sorted(str(v) for v in s.dropna().unique() if str(v) != "")
         if len(unique_vals) <= 1:
             continue
         controls.append(
@@ -607,8 +605,20 @@ def register_callbacks(app: dash.Dash) -> None:
         if not store_data:
             return []
         long_df = deserialise_long(store_data)
-        display_df = build_display_df(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
-        return compute_dim_filter_controls(display_df)
+        if long_df.empty or "variable_label" not in long_df.columns:
+            return []
+        try:
+            dt = DimensionTable(long_df)
+            if dropped_dims:
+                for dim in dropped_dims:
+                    method = _choose_drop_method(dt, dim)
+                    try:
+                        dt = dt.drop(dim, method=method)
+                    except Exception:
+                        pass
+            return compute_dim_filter_controls(dt.dims)
+        except Exception:
+            return []
 
     @app.callback(
         Output("data-output", "children"),
@@ -623,35 +633,26 @@ def register_callbacks(app: dash.Dash) -> None:
         if not store_data:
             return no_update
         long_df = deserialise_long(store_data)
-        display_df = build_display_df(long_df, value_mode or "estimate", bool(show_moe), dropped_dims)
-        if display_df.empty:
-            return no_update
-        # Ignore stale filter values when a new fetch just landed
+        filters = {}
         if dash.ctx.triggered_id != "long-data-store":
             filters = {
                 fid["index"]: fval
                 for fid, fval in zip(filter_ids or [], filter_values or [])
                 if fval
             }
-            display_df = apply_dim_filters(display_df, filters)
-        if display_df.empty:
+        data, columns = build_table_df(
+            long_df,
+            value_mode or "estimate",
+            bool(show_moe),
+            dropped_dims,
+            dim_filters=filters or None,
+        )
+        if not data:
             return no_update
-
-        col_display = {
-            "name": "Geography",
-            "reference_period": "Year",
-            "value": "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate",
-            "moe": "Margin of Error",
-        }
-        df_for_table = display_df.copy()
-        for col in df_for_table.columns:
-            if hasattr(df_for_table[col], "cat"):
-                df_for_table[col] = df_for_table[col].astype(str)
-
-        columns = [{"name": col_display.get(col, col), "id": col} for col in df_for_table.columns]
-        table = dash_table.DataTable(
-            data=df_for_table.to_dict("records"),
+        return dash_table.DataTable(
+            data=data,
             columns=columns,
+            merge_duplicate_headers=True,
             page_size=15,
             sort_action="native",
             filter_action="none",
@@ -659,7 +660,6 @@ def register_callbacks(app: dash.Dash) -> None:
             style_cell={"textAlign": "left", "padding": "3px 8px", "fontSize": "12px"},
             style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa", "fontSize": "12px"},
         )
-        return table
 
     @app.callback(
         Output("chart-x-axis", "options"),
@@ -671,18 +671,17 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("chart-facet", "options"),
         Output("chart-facet", "value"),
         Input("long-data-store", "data"),
-        Input("value-mode-radio", "value"),
         Input("dropped-dims-store", "data"),
     )
-    def update_chart_axis_options(store_data, value_mode, dropped_dims):
+    def update_chart_axis_options(store_data, dropped_dims):
         empty: list = []
         if not store_data:
             return empty, None, empty, None, empty, None, empty, None
         long_df = deserialise_long(store_data)
-        display_df = build_display_df(long_df, value_mode or "estimate", False, dropped_dims)
-        if display_df.empty:
+        chart_df = build_chart_df(long_df, dropped_dims)
+        if chart_df.empty:
             return empty, None, empty, None, empty, None, empty, None
-        chart_df = display_df.rename(columns={"name": "geography", "reference_period": "year"})
+        chart_df = chart_df.rename(columns={"name": "geography", "reference_period": "year", "estimate": "value"})
         options = _chart_axis_options_from_long(chart_df)
         vals = [o["value"] for o in options]
         dim_vals = [v for v in vals if v not in ("geography", "year", "value")]
@@ -715,31 +714,28 @@ def register_callbacks(app: dash.Dash) -> None:
         if not store_data:
             return {}
         long_df = deserialise_long(store_data)
-        display_df = build_display_df(long_df, value_mode or "estimate", False, dropped_dims)
-        if display_df.empty:
+        chart_df = build_chart_df(long_df, dropped_dims)
+        if chart_df.empty:
             return {}
-        # Ignore stale filter values when a new fetch just landed
         if dash.ctx.triggered_id != "long-data-store":
             filters = {
                 fid["index"]: fval
                 for fid, fval in zip(filter_ids or [], filter_values or [])
                 if fval
             }
-            display_df = apply_dim_filters(display_df, filters)
-        if display_df.empty:
+            chart_df = apply_dim_filters(chart_df, filters)
+        if chart_df.empty:
             return {}
-        chart_df = display_df.rename(columns={"name": "geography", "reference_period": "year"})
-
+        chart_df = chart_df.rename(columns={"name": "geography", "reference_period": "year", "estimate": "value"})
+        # title building — keep existing logic unchanged
         group_desc = None
         if group_code and group_options:
             opt = next((o for o in group_options if o["value"] == group_code), None)
             if opt:
                 label = opt["label"]
                 group_desc = label.split(" — ", 1)[-1] if " — " in label else label
-
         title = _build_chart_title(group_desc, geo_list, vintages)
         y_axis_label = "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate"
-
         return render_chart_from_long(
             chart_df,
             chart_type or "bar",
