@@ -462,26 +462,71 @@ class TestRenderChartFromLong:
         spec_str = str(result)
         assert "Test Title" in spec_str
 
+    def test_group_code_in_caption(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "bar", group_code="B01001")
+        assert "B01001" in str(result)
+
+    def test_width_height_respected(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "bar", width_in=6.0, height_in=4.0)
+        spec_str = str(result)
+        assert "576" in spec_str  # 6 * 96
+        assert "384" in spec_str  # 4 * 96
+
+    def test_percent_bar_type(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "bar_percent")
+        assert "$schema" in result
+
+    def test_area_stacked_type(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "area_stacked")
+        assert "$schema" in result
+
+    def test_area_percent_type(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "area_percent")
+        assert "$schema" in result
+
+    def test_font_size_applied(self):
+        chart_df = _make_chart_df()
+        result = render_chart_from_long(chart_df, "bar", font_size=18)
+        spec_str = str(result)
+        assert "18" in spec_str
+
 
 # ---------------------------------------------------------------------------
 # _build_chart_title
 # ---------------------------------------------------------------------------
 
 class TestBuildChartTitle:
-    def test_all_parts(self):
-        result = _build_chart_title("Sex by Age", [{"scope": "Franklin County"}], [2023])
-        assert "Sex by Age" in result
-        assert "Franklin County" in result
+    def test_x_and_color_and_year(self):
+        result = _build_chart_title("Sex", "year", [2023], "Total population", [{"scope": "franklin"}])
+        assert "Sex" in result
         assert "2023" in result
 
+    def test_color_geography_omitted_from_axis_str(self):
+        result = _build_chart_title("year", "geography", [2023], "Total population", [{"scope": "franklin"}])
+        assert "Geography by" not in result
+
     def test_multi_vintage_range(self):
-        result = _build_chart_title("Sex by Age", [{"scope": "Franklin County"}], [2021, 2022, 2023])
+        result = _build_chart_title("Sex", None, [2021, 2022, 2023], None, None)
         assert "2021" in result and "2023" in result
 
-    def test_no_group(self):
-        result = _build_chart_title(None, [{"scope": "Franklin County"}], [2023])
-        assert "Franklin County" in result
+    def test_non_consecutive_vintages_comma_joined(self):
+        result = _build_chart_title("Sex", None, [2019, 2024], None, None)
+        assert "2019" in result and "2024" in result
 
-    def test_empty_returns_empty_string(self):
-        result = _build_chart_title(None, None, None)
+    def test_universe_included(self):
+        result = _build_chart_title("Sex", None, [2023], "Total population", None)
+        assert "Total population" in result
+
+    def test_no_fields_returns_empty_or_year_only(self):
+        result = _build_chart_title(None, None, None, None, None)
         assert result == ""
+
+    def test_single_year_no_dash(self):
+        result = _build_chart_title("Sex", None, [2023], None, None)
+        assert "–" not in result
+        assert "2023" in result

@@ -1,3 +1,7 @@
+## 2026-06-01 — Chart UI improvements (feature/chart-ui-improvements)
+
+Replaced the aspect-ratio slider with explicit width (in) and height (in) inputs plus a font-size slider so every chart text element scales from a single base value. Added an independent y-axis checkbox for faceted charts. The source caption now appends the group code. Rewrote `_build_chart_title` to derive the title from the selected x/color axes, universe, and geography rather than the group dropdown label. Added three new chart types: Percent Bar, Stacked Area, and Percent Area. Removed the `group_options` State from the chart callback since the new title logic no longer needs it.
+
 ## Rewrite display table and chart to use DimensionTable directly (issue #31)
 
 Replaced `build_wide_table` and `build_display_df` (and the broken `_is_leaf_var`) with two

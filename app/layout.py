@@ -176,19 +176,55 @@ def make_layout() -> dbc.Container:
                                                 {"label": "Horizontal Bar", "value": "bar_horizontal"},
                                                 {"label": "Line", "value": "line"},
                                                 {"label": "Point", "value": "point"},
+                                                {"label": "Percent Bar", "value": "bar_percent"},
+                                                {"label": "Stacked Area", "value": "area_stacked"},
+                                                {"label": "Percent Area", "value": "area_percent"},
                                             ],
                                             value="bar",
                                             clearable=False,
                                             className="mb-1",
                                         ),
-                                        dbc.Label("Aspect ratio", className="small mb-0"),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Width (in)", className="small mb-0"),
+                                                        dbc.Input(
+                                                            id="chart-width",
+                                                            type="number",
+                                                            value=8,
+                                                            min=2,
+                                                            max=24,
+                                                            step=0.5,
+                                                            className="mb-1",
+                                                        ),
+                                                    ]
+                                                ),
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label("Height (in)", className="small mb-0"),
+                                                        dbc.Input(
+                                                            id="chart-height",
+                                                            type="number",
+                                                            value=5,
+                                                            min=2,
+                                                            max=16,
+                                                            step=0.5,
+                                                            className="mb-1",
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            className="mb-1 g-1",
+                                        ),
+                                        dbc.Label("Font size", className="small mb-0"),
                                         dcc.Slider(
-                                            id="chart-aspect-ratio",
-                                            min=0.5,
-                                            max=2.5,
-                                            step=0.25,
-                                            value=1.0,
-                                            marks={0.5: "0.5×", 1.0: "1×", 1.5: "1.5×", 2.0: "2×", 2.5: "2.5×"},
+                                            id="chart-font-size",
+                                            min=8,
+                                            max=24,
+                                            step=1,
+                                            value=12,
+                                            marks={8: "8", 12: "12", 16: "16", 20: "20", 24: "24"},
                                             tooltip={"placement": "bottom", "always_visible": False},
                                             className="mb-2",
                                         ),
@@ -246,6 +282,12 @@ def make_layout() -> dbc.Container:
                                                 ),
                                             ],
                                             className="mb-1 g-1",
+                                        ),
+                                        dbc.Checkbox(
+                                            id="chart-facet-independent-y",
+                                            label="Independent y-axis",
+                                            value=False,
+                                            className="mb-1 small",
                                         ),
 
                                         html.Hr(className="my-2"),
