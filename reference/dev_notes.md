@@ -1,3 +1,24 @@
+## Rewrite display table and chart to use DimensionTable directly (issue #31)
+
+Replaced `build_wide_table` and `build_display_df` (and the broken `_is_leaf_var`) with two
+purpose-built functions in `app/fetch.py`:
+
+- `build_table_df` — calls `DimensionTable.wide()` or `percent()` directly, filters column
+  MultiIndex to `(name, reference_period, value_type)`, and returns `(data, columns)` for a
+  Dash DataTable with 2-level merged headers (`merge_duplicate_headers=True`). No leaf
+  filtering.
+- `build_chart_df` — joins `DimensionTable.dims` back onto `dt.long` and returns a long
+  DataFrame with ordered-Categorical dim columns (empty string for subtotal rows). No leaf
+  filtering — user controls what appears via dim filter dropdowns.
+
+Root cause of the prior B02001 bug: `_is_leaf_var` relied on a `:` suffix that
+`DimensionTable._parse_dims` strips away, so it treated every variable (including subtotals)
+as a leaf, causing ragged-hierarchy groups to display only the deepest sub-categories.
+
+Four callbacks updated in `app/callbacks.py`; `compute_dim_filter_controls` now takes
+`dt.dims` directly. Tests updated: `TestBuildWideTable` and `TestBuildDisplayDf` removed;
+`TestBuildTableDf`, `TestBuildChartDf`, and `TestApplyDimFiltersToWide` added. 123 tests pass.
+
 ## feat/long-data-pipeline-29 — Rebuild table and chart from long data directly
 
 Replaced the wide-pivot intermediate store with build_display_df, which produces a tidy long DataFrame (dim cols, name, reference_period, value[, moe]) directly from CensusAPI.long. Removed compute_wide_data, wide_to_long, long_to_chart_df, render_chart_from_wide, _chart_axis_options, compute_table from callbacks.py; removed the wide-data-store dcc.Store from layout.py; rewrote apply_dim_filters (DataFrame in/out), compute_dim_filter_controls (takes display_df), and all four affected Dash callbacks to drive from long-data-store directly. Tests updated to match: removed render_chart_from_wide and long_to_chart_df suites, rewrote apply_dim_filters and compute_dim_filter_controls tests, added TestBuildDisplayDf. 71 tests passing.
