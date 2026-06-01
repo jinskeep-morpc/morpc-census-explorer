@@ -8,7 +8,6 @@ import pytest
 from app.callbacks import compute_fetch_and_store
 from app.fetch import (
     _apply_dim_filters_to_wide,
-    _choose_drop_method,
     build_chart_df,
     build_table_df,
     deserialise_long,
@@ -205,15 +204,15 @@ class TestGetAvailableDims:
 
 
 # ---------------------------------------------------------------------------
-# _choose_drop_method — mirrors real B01001 dim structure with "Total:" root
+# DimensionTable._has_partial_subtotals — mirrors real B01001 dim structure
 # ---------------------------------------------------------------------------
 
 def _make_b01001_long():
     """Minimal B01001-style long DF matching real Census label structure.
 
     After _parse_dims:
-      dim_0 = "Total:" (universal root, same for every row)
-      dim_1 = Sex: "Male:", "Female:", "" (grand-total row)
+      dim_0 = "Total" (universal root, same for every row)
+      dim_1 = Sex: "Male", "Female", "" (grand-total row)
       dim_2 = Age: "Under 5 years", ..., "" (sex-subtotal rows + grand total)
     """
     def _row(label, var, est):
@@ -236,35 +235,33 @@ def _make_b01001_long():
 from morpc_census.api import DimensionTable as _DT
 
 
-class TestChooseDropMethod:
-    def test_root_dim_uses_aggregate(self):
-        # "Total" col has no empty rows → aggregate
+class TestHasPartialSubtotals:
+    def test_root_dim_no_subtotals(self):
+        # "Total" col is non-empty for every row — no subtotal rows at all
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "Total") == "aggregate"
+        assert dt._has_partial_subtotals("Total") is False
 
-    def test_sex_dim_uses_aggregate(self):
-        # "Sex": its only empty row is the grand total → aggregate
+    def test_sex_dim_no_partial_subtotals(self):
+        # Sex col: only empty row is the grand total where Age is also ''
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "Sex") == "aggregate"
+        assert dt._has_partial_subtotals("Sex") is False
 
-    def test_age_dim_uses_summarize(self):
-        # "Age": "" rows are the sex-subtotals (Male, Female) — partial subtotals exist
+    def test_age_dim_has_partial_subtotals(self):
+        # Age col: empty rows are the sex-subtotals (Male and Female rows)
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "Age") == "summarize"
+        assert dt._has_partial_subtotals("Age") is True
 
-    def test_nonexistent_dim_uses_aggregate(self):
+    def test_nonexistent_dim_no_subtotals(self):
         dt = _DT(_make_b01001_long())
-        assert _choose_drop_method(dt, "nonexistent_dim") == "aggregate"
+        assert dt._has_partial_subtotals("nonexistent_dim") is False
 
-    def test_simple_fixture_leaf_dim_uses_summarize(self):
-        # "Age" is the leaf dim — has '' rows for Male/Female subtotals
+    def test_leaf_dim_has_partial_subtotals(self):
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "Age") == "summarize"
+        assert dt._has_partial_subtotals("Age") is True
 
-    def test_simple_fixture_root_dim_uses_aggregate(self):
-        # "Sex" is the root dim — no '' rows → aggregate
+    def test_root_dim_no_partial_subtotals(self):
         dt = _DT(_make_multi_dim_long())
-        assert _choose_drop_method(dt, "Sex") == "aggregate"
+        assert dt._has_partial_subtotals("Sex") is False
 
 
 # ---------------------------------------------------------------------------
