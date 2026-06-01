@@ -394,6 +394,7 @@ def render_chart_from_long(
     font_size: int = 12,
     group_code: str | None = None,
     facet_independent_y: bool = False,
+    facet_independent_x: bool = False,
 ) -> dict:
     """Render a Vega-Lite spec dict from a chart-ready long DataFrame."""
     if chart_df.empty:
@@ -508,6 +509,8 @@ def render_chart_from_long(
             )
             if facet_independent_y:
                 facet_spec = facet_spec.resolve_scale(y="independent")
+            if facet_independent_x:
+                facet_spec = facet_spec.resolve_scale(x="independent")
             if title_props:
                 facet_spec = facet_spec.properties(**title_props)
             main = facet_spec
@@ -762,6 +765,7 @@ def register_callbacks(app: dash.Dash) -> None:
         Input("chart-height", "value"),
         Input("chart-font-size", "value"),
         Input("chart-facet-independent-y", "value"),
+        Input("chart-facet-independent-x", "value"),
         Input({"type": "dim-filter", "index": ALL}, "value"),
         State({"type": "dim-filter", "index": ALL}, "id"),
         State("value-mode-radio", "value"),
@@ -771,7 +775,7 @@ def register_callbacks(app: dash.Dash) -> None:
         State("geo-list-store", "data"),
     )
     def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field,
-                     chart_width, chart_height, chart_font_size, facet_independent_y,
+                     chart_width, chart_height, chart_font_size, facet_independent_y, facet_independent_x,
                      filter_values, filter_ids,
                      value_mode, dropped_dims, group_code, vintages, geo_list):
         if not store_data:
@@ -811,6 +815,7 @@ def register_callbacks(app: dash.Dash) -> None:
             font_size=int(chart_font_size) if chart_font_size is not None else 12,
             group_code=group_code or None,
             facet_independent_y=bool(facet_independent_y),
+            facet_independent_x=bool(facet_independent_x),
         )
 
     @app.callback(
