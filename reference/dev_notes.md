@@ -1,3 +1,7 @@
+## 2026-06-01 — Remove _choose_drop_method from explorer (issue #37)
+
+`DimensionTable.drop()` now auto-detects whether to filter or aggregate (morpc-census #95), so the explorer's `_choose_drop_method` helper and all `method=` arguments to `dt.drop()` are no longer needed. Removed from `app/fetch.py`, `app/callbacks.py`, and `tests/test_fetch.py` (TestChooseDropMethod → TestHasPartialSubtotals now tests the library method directly).
+
 ## 2026-06-01 — Clear table/chart on each fetch (issue #34, fix/clear-on-fetch-34)
 
 `render_table` was returning `no_update` when `store_data` was falsy or when `build_table_df` returned empty data, allowing stale UI to persist across fetches. Changed both returns to `html.Div()` so the table is always cleared when there is nothing to show. The chart callback already returned `{}` (clear) for empty cases. No `allow_duplicate` approach was needed — the simpler empty-return fix is sufficient.

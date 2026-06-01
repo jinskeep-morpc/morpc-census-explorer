@@ -100,32 +100,6 @@ def get_droppable_dims(long_df: pd.DataFrame) -> list[str]:
         return []
 
 
-def _choose_drop_method(dt: "DimensionTable", dim: str) -> str:
-    """Return 'summarize' or 'aggregate' for DimensionTable.drop(dim).
-
-    Chooses 'summarize' when the data already contains partial-subtotal rows for
-    *dim* (rows where dim=="") that also carry specific values for some sibling
-    dimension — meaning pre-aggregated results exist and we just need to filter.
-
-    Chooses 'aggregate' when no such partial subtotals exist (either the dim has
-    no empty rows, or the only empty rows are the grand-total row where every
-    other dim is also empty, or every other dim is a "universal root" with only
-    one distinct value like "Total:").
-    """
-    if dim not in dt.dims.columns:
-        return "aggregate"
-    other_dims = [d for d in dt.dims.columns if d != dim]
-    subtotal_rows = dt.dims.loc[dt.dims[dim] == ""]
-    if subtotal_rows.empty or not other_dims:
-        return "aggregate"
-    for other in other_dims:
-        non_empty_in_subtotals = subtotal_rows[other][subtotal_rows[other] != ""]
-        globally_non_empty = dt.dims[other][dt.dims[other] != ""]
-        # A "real" sibling dim has 2+ distinct values — rules out "Total:" roots
-        if len(non_empty_in_subtotals) > 0 and globally_non_empty.nunique() >= 2:
-            return "summarize"
-    return "aggregate"
-
 
 def _apply_dim_filters_to_wide(
     wide: "pd.DataFrame",
@@ -170,11 +144,10 @@ def build_table_df(
     dt = DimensionTable(long_df)
     if dropped_dims:
         for dim in dropped_dims:
-            method = _choose_drop_method(dt, dim)
             try:
-                dt = dt.drop(dim, method=method)
+                dt = dt.drop(dim)
             except (IndexError, ValueError, KeyError) as exc:
-                logger.warning("DimensionTable.drop(%s, %s) failed: %s — ignoring", dim, method, exc)
+                logger.warning("DimensionTable.drop(%s) failed: %s — ignoring", dim, exc)
 
     is_pct = value_mode == "percent"
     try:
@@ -254,11 +227,10 @@ def build_chart_df(
     dt = DimensionTable(long_df)
     if dropped_dims:
         for dim in dropped_dims:
-            method = _choose_drop_method(dt, dim)
             try:
-                dt = dt.drop(dim, method=method)
+                dt = dt.drop(dim)
             except (IndexError, ValueError, KeyError) as exc:
-                logger.warning("DimensionTable.drop(%s, %s) failed: %s — ignoring", dim, method, exc)
+                logger.warning("DimensionTable.drop(%s) failed: %s — ignoring", dim, exc)
 
     long_copy = dt.long.copy()
     for col in dt.dims.columns:

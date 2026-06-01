@@ -17,7 +17,6 @@ import dash_bootstrap_components as dbc
 from app.db import SessionLocal
 from app.exports import export_excel, export_frictionless
 from app.fetch import (
-    _choose_drop_method,
     build_chart_df,
     build_table_df,
     deserialise_long,
@@ -673,9 +672,8 @@ def register_callbacks(app: dash.Dash) -> None:
             dt = DimensionTable(long_df)
             if dropped_dims:
                 for dim in dropped_dims:
-                    method = _choose_drop_method(dt, dim)
                     try:
-                        dt = dt.drop(dim, method=method)
+                        dt = dt.drop(dim)
                     except Exception:
                         pass
             return compute_dim_filter_controls(dt.dims)
