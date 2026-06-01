@@ -20,7 +20,8 @@ from app.callbacks import (
     render_chart_from_long,
     render_chart_image,
 )
-from app.fetch import build_display_df, deserialise_long, get_droppable_dims, serialise_long
+from app.fetch import build_chart_df, build_table_df, deserialise_long, get_droppable_dims, serialise_long
+from morpc_census.api import DimensionTable
 
 _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
@@ -243,14 +244,10 @@ def _make_multi_dim_store():
     return serialise_long(_make_multi_dim_long())
 
 
-def _make_display_df():
-    return build_display_df(_make_multi_dim_long())
-
-
 def _make_chart_df(long_df=None):
-    """Return a chart-ready DataFrame (geography/year columns) from build_display_df."""
-    df = build_display_df(long_df if long_df is not None else _make_multi_dim_long())
-    return df.rename(columns={"name": "geography", "reference_period": "year"})
+    """Return a chart-ready DataFrame (geography/year/value columns) from build_chart_df."""
+    df = build_chart_df(long_df if long_df is not None else _make_multi_dim_long())
+    return df.rename(columns={"name": "geography", "reference_period": "year", "estimate": "value"})
 
 
 class TestComputeDimControls:
@@ -292,6 +289,9 @@ class TestComputeDimControls:
 # ---------------------------------------------------------------------------
 
 class TestComputeDimFilterControls:
+    def _make_dims_df(self):
+        return DimensionTable(_make_multi_dim_long()).dims
+
     def test_none_returns_empty(self):
         assert compute_dim_filter_controls(None) == []
 
@@ -299,18 +299,20 @@ class TestComputeDimFilterControls:
         assert compute_dim_filter_controls(pd.DataFrame()) == []
 
     def test_multi_dim_returns_dropdowns(self):
-        df = _make_display_df()
-        controls = compute_dim_filter_controls(df)
+        dims_df = self._make_dims_df()
+        controls = compute_dim_filter_controls(dims_df)
         assert len(controls) >= 1
 
     def test_dropdown_has_correct_options(self):
-        df = _make_display_df()
-        controls = compute_dim_filter_controls(df)
+        dims_df = self._make_dims_df()
+        controls = compute_dim_filter_controls(dims_df)
         assert controls
         span = controls[0]
         dropdown = span.children[1]
         option_values = {o["value"] for o in dropdown.options}
         assert option_values
+        # Empty string should not appear as an option
+        assert "" not in option_values
 
 
 # ---------------------------------------------------------------------------
@@ -318,8 +320,14 @@ class TestComputeDimFilterControls:
 # ---------------------------------------------------------------------------
 
 class TestApplyDimFilters:
+    def _make_df(self):
+        return build_chart_df(_make_multi_dim_long())
+
+    def _dim_cols(self, df):
+        return [c for c in df.columns if c not in ("name", "reference_period", "estimate")]
+
     def test_no_filter_returns_all_rows(self):
-        df = _make_display_df()
+        df = self._make_df()
         result = apply_dim_filters(df, {})
         assert len(result) == len(df)
 
@@ -328,18 +336,18 @@ class TestApplyDimFilters:
         assert isinstance(result, pd.DataFrame) and result.empty
 
     def test_filter_reduces_rows(self):
-        df = _make_display_df()
-        dim_cols = [c for c in df.columns if c not in ("name", "reference_period", "value", "moe")]
+        df = self._make_df()
+        dim_cols = self._dim_cols(df)
         if dim_cols:
             col = dim_cols[0]
-            vals = df[col].dropna().unique().tolist()
+            vals = [str(v) for v in df[col].dropna().unique() if str(v) != ""]
             if vals:
-                filtered = apply_dim_filters(df, {col: [str(vals[0])]})
+                filtered = apply_dim_filters(df, {col: [vals[0]]})
                 assert len(filtered) <= len(df)
 
     def test_filter_by_nonexistent_value_returns_empty(self):
-        df = _make_display_df()
-        dim_cols = [c for c in df.columns if c not in ("name", "reference_period", "value", "moe")]
+        df = self._make_df()
+        dim_cols = self._dim_cols(df)
         if dim_cols:
             result = apply_dim_filters(df, {dim_cols[0]: ["__does_not_exist__"]})
             assert result.empty
@@ -374,39 +382,6 @@ class TestComputeDroppedDims:
         current = compute_dropped_dims([], None, [], {"type": "drop-dim-btn", "index": "dim_0"})
         current = compute_dropped_dims([], None, current, {"type": "drop-dim-btn", "index": "dim_1"})
         assert "dim_0" in current and "dim_1" in current
-
-
-# ---------------------------------------------------------------------------
-# build_display_df
-# ---------------------------------------------------------------------------
-
-class TestBuildDisplayDf:
-    def test_empty_df_returns_empty(self):
-        result = build_display_df(pd.DataFrame())
-        assert result.empty
-
-    def test_has_expected_columns(self):
-        result = build_display_df(_make_multi_dim_long())
-        assert "name" in result.columns
-        assert "reference_period" in result.columns
-        assert "value" in result.columns
-
-    def test_returns_leaf_rows_only(self):
-        result = build_display_df(_make_multi_dim_long())
-        assert not result.empty
-        reserved = {"name", "reference_period", "value", "moe"}
-        dim_cols = [c for c in result.columns if c not in reserved]
-        for col in dim_cols:
-            assert not (result[col].astype(str) == "").any()
-
-    def test_estimate_mode_uses_estimate(self):
-        result = build_display_df(_make_multi_dim_long(), value_mode="estimate")
-        assert not result.empty
-        assert (result["value"] > 0).all()
-
-    def test_single_dim_returns_rows(self):
-        result = build_display_df(_make_long())
-        assert not result.empty
 
 
 # ---------------------------------------------------------------------------

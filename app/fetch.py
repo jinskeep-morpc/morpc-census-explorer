@@ -127,31 +127,46 @@ def _choose_drop_method(dt: "DimensionTable", dim: str) -> str:
     return "aggregate"
 
 
-def build_wide_table(
+def _apply_dim_filters_to_wide(
+    wide: "pd.DataFrame",
+    dim_filters: "dict[str, list[str]] | None",
+) -> "pd.DataFrame":
+    """Filter rows of a wide DataFrame by its dim index."""
+    if not dim_filters:
+        return wide
+    index = wide.index
+    if isinstance(index, pd.MultiIndex):
+        mask = pd.Series(True, index=range(len(wide)))
+        for dim_name, vals in dim_filters.items():
+            if dim_name in index.names and vals:
+                mask &= index.get_level_values(dim_name).astype(str).isin(
+                    [str(v) for v in vals]
+                )
+        return wide.iloc[mask.values]
+    else:
+        if index.name and index.name in dim_filters:
+            vals = dim_filters[index.name]
+            if vals:
+                return wide.loc[index.astype(str).isin([str(v) for v in vals])]
+    return wide
+
+
+def build_table_df(
     long_df: pd.DataFrame,
     value_mode: str = "estimate",
     show_moe: bool = False,
     dropped_dims: list[str] | None = None,
+    dim_filters: dict[str, list[str]] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Pivot a long DataFrame and flatten its MultiIndex for dash_table.DataTable.
+    """Build (data, columns) for a Dash DataTable from CensusAPI.long.
 
-    Parameters
-    ----------
-    long_df:
-        Concatenated output of ``CensusAPI.long`` across one or more vintages.
-    value_mode:
-        ``"estimate"`` uses ``DimensionTable.wide()``;
-        ``"percent"`` uses ``DimensionTable.percent()``.
-    show_moe:
-        When True, include the MOE column alongside the primary value column.
-    dropped_dims:
-        List of dim column names (e.g. ``["dim_0"]``) to drop before pivoting.
-
-    Returns
-    -------
-    (data, columns)
-        Ready to pass directly to ``dash_table.DataTable(data=..., columns=...)``.
+    Calls DimensionTable.wide() or percent() directly — no leaf filtering.
+    Column headers use 2 levels: geo name (top, merged) and year label (bottom).
+    Dim index values become the leftmost row-header columns.
     """
+    if long_df.empty or "variable_label" not in long_df.columns:
+        return [], []
+
     dt = DimensionTable(long_df)
     if dropped_dims:
         for dim in dropped_dims:
@@ -159,175 +174,142 @@ def build_wide_table(
             try:
                 dt = dt.drop(dim, method=method)
             except (IndexError, ValueError, KeyError) as exc:
-                logger.warning("DimensionTable.drop(%s, method=%s) failed: %s — ignoring", dim, method, exc)
-    is_pct = value_mode == "percent"
+                logger.warning("DimensionTable.drop(%s, %s) failed: %s — ignoring", dim, method, exc)
 
+    is_pct = value_mode == "percent"
     try:
         wide = dt.percent() if is_pct else dt.wide()
     except Exception as exc:
         logger.warning("Table pivot failed (%s): %s", value_mode, exc)
         return [], []
 
+    # Filter value_type columns
     keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
-
     if wide.empty:
         return [], []
 
-    # Resolve dimension-index names
-    index = wide.index
-    if isinstance(index, pd.MultiIndex):
-        dim_names = list(index.names)
+    # Apply dim filters to the row index
+    if dim_filters:
+        wide = _apply_dim_filters_to_wide(wide, dim_filters)
+    if wide.empty:
+        return [], []
+
+    # Extract dim names from index
+    if isinstance(wide.index, pd.MultiIndex):
+        dim_names = list(wide.index.names)
     else:
-        dim_names = [index.name or "dim_0"]
+        dim_names = [wide.index.name or "dim_0"]
 
-    pct_prefix = "% " if is_pct else ""
-
-    # ---------------------------------------------------------------------------
-    # Leaf detection and category ordering — derived from dt.dims which still
-    # carries the ':' suffix that marks subtotal rows.
-    # ---------------------------------------------------------------------------
-    raw_dims = dt.dims  # Categorical columns; subtotal values end with ':'
-
-    def _is_leaf_var(raw_row: pd.Series) -> bool:
-        non_empty = [str(v) for v in raw_row if str(v) != ""]
-        return bool(non_empty) and not non_empty[-1].endswith(":")
-
-    display_dims_map = raw_dims.apply(
-        lambda col: col.astype(str).str.rstrip(":").str.strip()
-    )
-
-    leaf_map: dict[tuple, bool] = {}
-    for var_code in raw_dims.index:
-        key = tuple(display_dims_map.loc[var_code])
-        leaf_map[key] = leaf_map.get(key, False) or _is_leaf_var(raw_dims.loc[var_code])
-
-    # Ordered category lists for each dim (strip ':', drop '', preserve Census order)
-    dim_categories: dict[str, list[str]] = {}
-    for col_name in raw_dims.columns:
-        cats: list[str] = []
-        for cat in raw_dims[col_name].cat.categories:
-            stripped = str(cat).rstrip(":").strip()
-            if stripped and stripped not in cats:
-                cats.append(stripped)
-        dim_categories[col_name] = cats
-
-    # ---------------------------------------------------------------------------
-
-    columns: list[dict] = [
-        {
-            "name": n,
-            "id": f"__dim_{i}__",
-            "categories": dim_categories.get(n, []),
-        }
-        for i, n in enumerate(dim_names)
+    # Build columns spec — 2-level names for merge_duplicate_headers=True
+    # Dim cols: ["", dim_name] — blank top level, dim name at bottom
+    dim_col_specs = [
+        {"name": ["", dn], "id": f"__dim_{dn}__"}
+        for dn in dim_names
     ]
-    data_cols: list[tuple[tuple, str]] = []
 
+    # Data cols: [geo_name, year_label] — year_label includes [MOE] suffix for moe columns
+    data_col_specs = []
     for tup in wide.columns:
         col_map = dict(zip(wide.columns.names, tup))
-        name = col_map.get("name") or col_map.get("geoidfq", "")
+        geo_name = col_map.get("name", "")
         year = col_map.get("reference_period", "")
         vtype = col_map.get("value_type", "")
-        vtype_suffix = " [MOE]" if (show_moe and vtype == "moe") else ""
-        label = f"{pct_prefix}{name} ({year}){vtype_suffix}"
-        col_id = "__".join(str(v) for v in tup)
-        columns.append({"name": label, "id": col_id})
-        data_cols.append((tup, col_id))
+        geoidfq = col_map.get("geoidfq", "")
+        year_label = f"{year} [MOE]" if vtype == "moe" else str(year)
+        col_id = f"{geoidfq}__{year}__{vtype}"
+        data_col_specs.append({"name": [geo_name, year_label], "id": col_id, "_tup": tup})
 
-    data: list[dict] = []
-    for idx, row in wide.iterrows():
-        key = tuple(str(v) for v in idx) if isinstance(idx, tuple) else (str(idx),)
-        if isinstance(idx, tuple):
-            record: dict = {f"__dim_{i}__": str(v) for i, v in enumerate(idx)}
-        else:
-            record = {"__dim_0__": str(idx)}
-        record["__is_leaf__"] = leaf_map.get(key, True)
-        for tup, col_id in data_cols:
-            val = row[tup]
-            record[col_id] = round(float(val), 2) if pd.notna(val) else None
+    columns = dim_col_specs + [{"name": s["name"], "id": s["id"]} for s in data_col_specs]
+
+    # Build data records
+    data = []
+    for row_idx, row in wide.iterrows():
+        idx_vals = row_idx if isinstance(row_idx, tuple) else (row_idx,)
+        record = {f"__dim_{dim_names[i]}__": str(v) for i, v in enumerate(idx_vals)}
+        for spec in data_col_specs:
+            val = row[spec["_tup"]]
+            record[spec["id"]] = round(float(val), 2) if pd.notna(val) else None
         data.append(record)
 
     return data, columns
 
 
-def build_display_df(
+def build_chart_df(
     long_df: pd.DataFrame,
-    value_mode: str = "estimate",
-    show_moe: bool = False,
     dropped_dims: list[str] | None = None,
+    value_mode: str = "estimate",
 ) -> pd.DataFrame:
-    """Build a tidy long DataFrame for display directly from CensusAPI.long.
+    """Build a long DataFrame for charting by joining DimensionTable dims to long data.
 
-    Returns one row per leaf variable × geography × vintage with columns:
-    dim_0[, dim_1, ...], name, reference_period, value[, moe].
-    Subtotal rows (any dim column is empty string) are excluded.
+    Returns columns: [dim_cols..., 'name', 'reference_period', 'estimate'].
+    Dim columns are ordered Categorical. Subtotal rows (any dim is '') are excluded.
+    When value_mode='percent', estimates are expressed as a percentage of the grand total
+    per geography and vintage.
     """
     if long_df.empty or "variable_label" not in long_df.columns:
         return pd.DataFrame()
 
     dt = DimensionTable(long_df)
-
     if dropped_dims:
         for dim in dropped_dims:
             method = _choose_drop_method(dt, dim)
             try:
                 dt = dt.drop(dim, method=method)
-            except Exception as exc:
-                logger.warning("drop(%s, %s) failed: %s — ignoring", dim, method, exc)
+            except (IndexError, ValueError, KeyError) as exc:
+                logger.warning("DimensionTable.drop(%s, %s) failed: %s — ignoring", dim, method, exc)
 
-    dims_df = dt.dims  # indexed by variable; columns = dim_0, dim_1, ...
+    long_copy = dt.long.copy()
+    for col in dt.dims.columns:
+        clean = dt.dims[col].astype(str)
+        raw_cats = list(dt.dims[col].cat.categories)
+        cats = list(dict.fromkeys(str(v) for v in raw_cats))
+        long_copy[col] = long_copy["variable"].map(clean).fillna("")
+        long_copy[col] = pd.Categorical(long_copy[col], categories=cats, ordered=True)
 
-    # Leaf: every dim column is non-empty (subtotals have '' in later dims).
-    leaf_vars = set(
-        dims_df.index[dims_df.apply(lambda r: all(str(v) != "" for v in r), axis=1)]
-    )
+    dim_cols = list(dt.dims.columns)
 
-    long = dt.long[dt.long["variable"].isin(leaf_vars)].copy()
-    if long.empty:
-        return pd.DataFrame()
+    # Drop subtotal rows — rows where any dim column is "" have no meaningful
+    # label for that dimension and would appear as blank entries on chart axes.
+    if dim_cols:
+        mask = pd.concat(
+            [long_copy[col].astype(str) != "" for col in dim_cols], axis=1
+        ).all(axis=1)
+        long_copy = long_copy[mask]
 
-    # Attach ordered Categorical dim columns.
-    for col in dims_df.columns:
-        clean = dims_df[col].astype(str).str.rstrip(":").str.strip()
-        long[col] = long["variable"].map(clean)
-        cats = list(dict.fromkeys(
-            c for c in (str(v).rstrip(":").strip() for v in dims_df[col].cat.categories)
-            if c
-        ))
-        long[col] = pd.Categorical(long[col], categories=cats, ordered=True)
-
-    # Compute value column.
-    is_pct = value_mode == "percent"
-    if is_pct and len(dims_df.columns) > 1:
-        # Grand total: rows where all dims after dim_0 are empty.
-        total_mask = (dims_df.iloc[:, 1:] == "").all(axis=1)
-        total_vars = set(dims_df.index[total_mask])
+    if value_mode == "percent" and len(dt.dims.columns) > 0:
+        # Grand total: the variable(s) where all dims after the first are "".
+        total_mask = (dt.dims.iloc[:, 1:] == "").all(axis=1) if len(dt.dims.columns) > 1 else pd.Series(True, index=dt.dims.index)
+        total_vars = set(dt.dims.index[total_mask])
         if total_vars:
             totals = (
                 dt.long[dt.long["variable"].isin(total_vars)]
-                .sort_values("variable")
                 .groupby(["geoidfq", "reference_period"], observed=True)
                 .first()[["estimate"]]
                 .rename(columns={"estimate": "_total"})
                 .reset_index()
             )
-            long = long.merge(totals, on=["geoidfq", "reference_period"], how="left")
-            long["value"] = (long["estimate"] / long["_total"] * 100).round(2)
-            long = long.drop(columns=["_total"])
-        else:
-            long["value"] = long["estimate"]
-    else:
-        long["value"] = long["estimate"]
+            long_copy = long_copy.merge(totals, on=["geoidfq", "reference_period"], how="left")
+            long_copy["estimate"] = (long_copy["estimate"] / long_copy["_total"] * 100).round(2)
+            long_copy = long_copy.drop(columns=["_total"])
 
-    dim_cols = list(dims_df.columns)
-    keep = dim_cols + ["name", "reference_period", "value"]
-    if show_moe and "moe" in long.columns:
-        keep.append("moe")
-    keep = [c for c in keep if c in long.columns]
+    keep = dim_cols + ["name", "reference_period", "estimate"]
+    keep = [c for c in keep if c in long_copy.columns]
+    result = long_copy[keep].reset_index(drop=True)
 
-    return long[keep].dropna(subset=["value"]).reset_index(drop=True)
+    # Convert reference_period to an ordered Categorical of strings so Vega-Lite
+    # treats year as ordinal ("O") rather than quantitative ("Q"). This ensures
+    # only the fetched years appear on the axis with no numeric interpolation.
+    if "reference_period" in result.columns:
+        years = sorted(result["reference_period"].dropna().unique())
+        result["reference_period"] = pd.Categorical(
+            result["reference_period"].astype(str),
+            categories=[str(y) for y in years],
+            ordered=True,
+        )
+
+    return result
 
 
 def serialise_long(df: pd.DataFrame) -> dict:

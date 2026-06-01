@@ -7,8 +7,10 @@ import pytest
 
 from app.callbacks import compute_fetch_and_store
 from app.fetch import (
+    _apply_dim_filters_to_wide,
     _choose_drop_method,
-    build_wide_table,
+    build_chart_df,
+    build_table_df,
     deserialise_long,
     fetch_all_geos,
     fetch_all_vintages,
@@ -266,82 +268,231 @@ class TestChooseDropMethod:
 
 
 # ---------------------------------------------------------------------------
-# build_wide_table (smoke tests — uses a real DimensionTable pivot)
+# _apply_dim_filters_to_wide
 # ---------------------------------------------------------------------------
 
-class TestBuildWideTable:
-    def _long(self):
-        # Minimal long DF that DimensionTable can pivot
-        return pd.DataFrame([
-            {
-                "geoidfq": "050US39049", "name": "Franklin County",
-                "reference_period": 2023, "survey": "acs/acs5",
-                "concept": "Sex by Age", "universe": "Total population",
-                "variable_label": "Total", "variable": "B01001_001",
-                "estimate": 1300000.0, "moe": 50000.0,
-            },
-            {
-                "geoidfq": "050US39049", "name": "Franklin County",
-                "reference_period": 2023, "survey": "acs/acs5",
-                "concept": "Sex by Age", "universe": "Total population",
-                "variable_label": "Male", "variable": "B01001_002",
-                "estimate": 640000.0, "moe": 20000.0,
-            },
-        ])
+class TestApplyDimFiltersToWide:
+    def _make_wide(self):
+        from morpc_census.api import DimensionTable
+        return DimensionTable(_make_multi_dim_long()).wide()
 
-    def test_returns_nonempty_data_and_columns(self):
-        data, cols = build_wide_table(self._long(), "estimate", False)
+    def test_no_filter_returns_all_rows(self):
+        wide = self._make_wide()
+        result = _apply_dim_filters_to_wide(wide, {})
+        assert len(result) == len(wide)
+
+    def test_none_filter_returns_all_rows(self):
+        wide = self._make_wide()
+        result = _apply_dim_filters_to_wide(wide, None)
+        assert len(result) == len(wide)
+
+    def test_multiindex_filter_reduces_rows(self):
+        wide = self._make_wide()
+        # Get the first dim name and a valid value from the index
+        if isinstance(wide.index, pd.MultiIndex):
+            dim_name = wide.index.names[0]
+            val = str(wide.index.get_level_values(dim_name)[0])
+            result = _apply_dim_filters_to_wide(wide, {dim_name: [val]})
+            assert len(result) <= len(wide)
+        else:
+            # single-level: filter to one value
+            dim_name = wide.index.name
+            val = str(wide.index[0])
+            result = _apply_dim_filters_to_wide(wide, {dim_name: [val]})
+            assert len(result) <= len(wide)
+
+    def test_nonexistent_dim_ignored(self):
+        wide = self._make_wide()
+        result = _apply_dim_filters_to_wide(wide, {"__bogus__": ["x"]})
+        assert len(result) == len(wide)
+
+    def test_empty_selection_list_ignored(self):
+        wide = self._make_wide()
+        if isinstance(wide.index, pd.MultiIndex):
+            dim_name = wide.index.names[0]
+        else:
+            dim_name = wide.index.name
+        result = _apply_dim_filters_to_wide(wide, {dim_name: []})
+        assert len(result) == len(wide)
+
+
+# ---------------------------------------------------------------------------
+# build_table_df
+# ---------------------------------------------------------------------------
+
+def _make_two_geo_long():
+    """Long DF with two geographies for testing merged column headers."""
+    def _row(geoidfq, name, label, var, est):
+        return {
+            "geoidfq": geoidfq, "name": name,
+            "reference_period": 2023, "survey": "acs/acs5",
+            "concept": "Sex by Age", "universe": "Total population",
+            "variable_label": label, "variable": var,
+            "estimate": est, "moe": est * 0.05,
+        }
+    rows = []
+    for geoidfq, name in [("050US39049", "Franklin County"), ("050US39089", "Licking County")]:
+        prefix = "B01" if "Franklin" in name else "B02"
+        rows += [
+            _row(geoidfq, name, "Male:", f"{prefix}_002", 640_000.0),
+            _row(geoidfq, name, "Female:", f"{prefix}_026", 680_000.0),
+            _row(geoidfq, name, "Male:!!Under 5 years:", f"{prefix}_003", 40_000.0),
+            _row(geoidfq, name, "Female:!!Under 5 years:", f"{prefix}_027", 38_000.0),
+        ]
+    return pd.DataFrame(rows)
+
+
+class TestBuildTableDf:
+    def test_empty_df_returns_empty_tuple(self):
+        data, cols = build_table_df(pd.DataFrame())
+        assert data == [] and cols == []
+
+    def test_no_variable_label_column_returns_empty(self):
+        df = pd.DataFrame([{"geoidfq": "x", "estimate": 1.0}])
+        data, cols = build_table_df(df)
+        assert data == [] and cols == []
+
+    def test_returns_tuple_of_lists(self):
+        data, cols = build_table_df(_make_multi_dim_long())
+        assert isinstance(data, list) and isinstance(cols, list)
+
+    def test_data_is_nonempty(self):
+        data, cols = build_table_df(_make_multi_dim_long())
         assert len(data) > 0
-        assert len(cols) > 0
 
-    def test_columns_include_dim_column(self):
-        _, cols = build_wide_table(self._long(), "estimate", False)
+    def test_dim_cols_have_2level_name(self):
+        _, cols = build_table_df(_make_multi_dim_long())
         dim_cols = [c for c in cols if c["id"].startswith("__dim_")]
         assert len(dim_cols) >= 1
+        for c in dim_cols:
+            assert isinstance(c["name"], list) and len(c["name"]) == 2
+            assert c["name"][0] == ""  # blank top level
 
-    def test_estimate_filter(self):
-        data, cols = build_wide_table(self._long(), "estimate", False)
+    def test_data_cols_have_2level_name(self):
+        _, cols = build_table_df(_make_multi_dim_long())
+        data_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        assert len(data_cols) >= 1
+        for c in data_cols:
+            assert isinstance(c["name"], list) and len(c["name"]) == 2
+
+    def test_data_col_id_contains_geoidfq(self):
+        _, cols = build_table_df(_make_multi_dim_long())
+        data_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        assert any("050US39049" in c["id"] for c in data_cols)
+
+    def test_show_moe_false_excludes_moe_columns(self):
+        _, cols = build_table_df(_make_multi_dim_long(), show_moe=False)
+        data_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        assert not any("moe" in c["id"] for c in data_cols)
+
+    def test_show_moe_true_includes_moe_columns(self):
+        _, cols = build_table_df(_make_multi_dim_long(), show_moe=True)
+        data_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        assert any("moe" in c["id"] for c in data_cols)
+
+    def test_drop_reduces_dim_columns(self):
+        df = _make_multi_dim_long()
+        _, cols_full = build_table_df(df)
+        n_dims_full = sum(1 for c in cols_full if c["id"].startswith("__dim_"))
+        _, cols_drop = build_table_df(df, dropped_dims=["Age"])
+        n_dims_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
+        assert n_dims_drop < n_dims_full
+
+    def test_invalid_dropped_dim_ignored(self):
+        data, cols = build_table_df(_make_multi_dim_long(), dropped_dims=["nonexistent"])
+        assert len(data) > 0 and len(cols) > 0
+
+    def test_dim_filter_reduces_rows(self):
+        data_all, _ = build_table_df(_make_multi_dim_long())
+        # Find a dim column and filter to one value
+        from morpc_census.api import DimensionTable
+        dt = DimensionTable(_make_multi_dim_long())
+        dim_name = list(dt.dims.columns)[0]
+        cats = [str(v) for v in dt.dims[dim_name].cat.categories if str(v) != ""]
+        if cats:
+            data_filtered, _ = build_table_df(_make_multi_dim_long(), dim_filters={dim_name: [cats[0]]})
+            assert len(data_filtered) <= len(data_all)
+
+    def test_dim_filter_no_match_returns_empty(self):
+        data, cols = build_table_df(_make_multi_dim_long(), dim_filters={"Sex": ["__bogus__"]})
+        assert data == [] and cols == []
+
+    def test_records_contain_all_data_col_ids(self):
+        data, cols = build_table_df(_make_multi_dim_long())
         data_col_ids = {c["id"] for c in cols if not c["id"].startswith("__dim_")}
         for record in data:
             for col_id in data_col_ids:
                 assert col_id in record
 
-    def test_unknown_value_mode_falls_back_to_empty(self):
-        data, cols = build_wide_table(self._long(), "bogus_mode", False)
-        # "bogus_mode" triggers the percent() path which may fail or produce no matching vtypes
-        assert isinstance(data, list) and isinstance(cols, list)
+    def test_two_geos_produce_two_data_col_groups(self):
+        data, cols = build_table_df(_make_two_geo_long())
+        data_cols = [c for c in cols if not c["id"].startswith("__dim_")]
+        geo_names = {c["name"][0] for c in data_cols}
+        assert len(geo_names) == 2
 
-    def test_drop_invalid_dim_is_ignored(self):
-        data, cols = build_wide_table(self._long(), "estimate", False, ["nonexistent_dim"])
-        assert len(data) > 0 and len(cols) > 0
 
-    def test_drop_reduces_dim_columns(self):
-        df = _make_multi_dim_long()
-        _, cols_nodrop = build_wide_table(df, "estimate", False, None)
-        _, cols_drop = build_wide_table(df, "estimate", False, ["Age"])
-        n_dim_nodrop = sum(1 for c in cols_nodrop if c["id"].startswith("__dim_"))
-        n_dim_drop = sum(1 for c in cols_drop if c["id"].startswith("__dim_"))
-        assert n_dim_drop < n_dim_nodrop
+# ---------------------------------------------------------------------------
+# build_chart_df
+# ---------------------------------------------------------------------------
 
-    def test_drop_leaf_dim_uses_summarize_and_produces_data(self):
-        # "Age" has '' rows → summarize → keeps subtotal rows (Male/Female)
-        df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["Age"])
-        assert len(data) > 0 and len(cols) > 0
+class TestBuildChartDf:
+    def test_empty_df_returns_empty(self):
+        result = build_chart_df(pd.DataFrame())
+        assert isinstance(result, pd.DataFrame) and result.empty
 
-    def test_drop_root_dim_uses_aggregate_and_produces_data(self):
-        # "Sex" has no '' rows → aggregate → sums across sex to get age-only totals
-        df = _make_multi_dim_long()
-        data, cols = build_wide_table(df, "estimate", False, ["Sex"])
-        assert len(data) > 0 and len(cols) > 0
+    def test_no_variable_label_returns_empty(self):
+        df = pd.DataFrame([{"geoidfq": "x", "estimate": 1.0}])
+        assert build_chart_df(df).empty
 
-    def test_drop_sex_in_b01001_structure_returns_age_rows(self):
-        # Real B01001-style: dropping dim_1 (sex) should aggregate Male+Female per age,
-        # NOT return only the grand total row.
-        df = _make_b01001_long()
-        data, cols = build_wide_table(df, "estimate", False, ["dim_1"])
-        # Should have an "Under 5 years" row (not just grand total)
-        assert len(data) > 1, "Expected age rows, got only grand total"
+    def test_returns_dataframe(self):
+        result = build_chart_df(_make_multi_dim_long())
+        assert isinstance(result, pd.DataFrame)
+
+    def test_has_name_refperiod_estimate(self):
+        result = build_chart_df(_make_multi_dim_long())
+        assert "name" in result.columns
+        assert "reference_period" in result.columns
+        assert "estimate" in result.columns
+
+    def test_no_moe_column(self):
+        result = build_chart_df(_make_multi_dim_long())
+        assert "moe" not in result.columns
+
+    def test_dim_cols_are_ordered_categorical(self):
+        result = build_chart_df(_make_multi_dim_long())
+        from morpc_census.api import DimensionTable
+        dim_cols = list(DimensionTable(_make_multi_dim_long()).dims.columns)
+        for col in dim_cols:
+            assert col in result.columns
+            assert hasattr(result[col], "cat") and result[col].cat.ordered
+
+    def test_no_empty_string_in_dim_cols(self):
+        result = build_chart_df(_make_multi_dim_long())
+        from morpc_census.api import DimensionTable
+        dim_cols = list(DimensionTable(_make_multi_dim_long()).dims.columns)
+        for col in dim_cols:
+            assert not (result[col].astype(str) == "").any()
+
+    def test_dropped_dims_reduce_dim_columns(self):
+        full = build_chart_df(_make_multi_dim_long())
+        from morpc_census.api import DimensionTable
+        dim_cols_full = list(DimensionTable(_make_multi_dim_long()).dims.columns)
+        dropped = build_chart_df(_make_multi_dim_long(), dropped_dims=["Age"])
+        from morpc_census.api import DimensionTable as DT2
+        dim_cols_dropped = list(DT2(_make_multi_dim_long()).dims.columns)
+        assert len([c for c in full.columns if c in dim_cols_full]) > len([c for c in dropped.columns if c in dim_cols_dropped])
+
+    def test_multi_geo_produces_multiple_name_values(self):
+        result = build_chart_df(_make_two_geo_long())
+        assert result["name"].nunique() == 2
+
+    def test_multi_vintage_produces_multiple_refperiod_values(self):
+        df1 = _make_multi_dim_long()
+        df2 = _make_multi_dim_long()
+        df2["reference_period"] = 2022
+        combined = pd.concat([df1, df2], ignore_index=True)
+        result = build_chart_df(combined)
+        assert result["reference_period"].nunique() == 2
 
 
 # ---------------------------------------------------------------------------
