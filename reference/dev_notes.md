@@ -1,3 +1,7 @@
+## 2026-06-01 — Clear table/chart on each fetch (issue #34, fix/clear-on-fetch-34)
+
+`render_table` was returning `no_update` when `store_data` was falsy or when `build_table_df` returned empty data, allowing stale UI to persist across fetches. Changed both returns to `html.Div()` so the table is always cleared when there is nothing to show. The chart callback already returned `{}` (clear) for empty cases. No `allow_duplicate` approach was needed — the simpler empty-return fix is sufficient.
+
 ## Rewrite display table and chart to use DimensionTable directly (issue #31)
 
 Replaced `build_wide_table` and `build_display_df` (and the broken `_is_leaf_var`) with two
