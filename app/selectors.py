@@ -8,6 +8,7 @@ in try/except so the app degrades gracefully when the Census API is unreachable.
 from __future__ import annotations
 
 import logging
+import re
 from functools import lru_cache
 
 from morpc_census.api import Endpoint
@@ -54,7 +55,33 @@ SURVEYS = {
         "has_topics": False,
         "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
     },
+    "dec/dhc+sf1": {
+        "label": "Decennial Detailed Demographics (DHC 2020 / SF1 2010 & 2000)",
+        "short": "dec-dhc-sf1",
+        "default_vintage": 2020,
+        "has_moe": False,
+        "has_topics": False,
+        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+    },
 }
+
+# Maps a logical combined survey + vintage → the actual Census API survey to call.
+VINTAGE_SURVEY_MAP: dict[str, dict[int, str]] = {
+    "dec/dhc+sf1": {
+        2020: "dec/dhc",
+        2010: "dec/sf1",
+        2000: "dec/sf1",
+    },
+}
+
+
+def api_survey_for_vintage(survey: str, vintage: int) -> str:
+    """Return the actual Census API survey ID for a logical survey + vintage.
+
+    For combined surveys (e.g. ``"dec/dhc+sf1"``), different vintages are
+    served by different API endpoints.  All other surveys return themselves.
+    """
+    return VINTAGE_SURVEY_MAP.get(survey, {}).get(vintage, survey)
 
 # backward-compat alias used in a few places
 SURVEY = "acs/acs5"
@@ -66,25 +93,39 @@ DEC_PL_GROUP_MAP: dict[str, str] = {
 }
 
 
-def canonical_group_code(code: str, survey: str) -> str:
+def canonical_group_code(code: str, survey: str, vintage: int | None = None) -> str:
     """Return the canonical group code for cross-vintage comparison.
 
-    Only differs from the raw code for dec/pl 2000 vintage
-    (PL001 → P1, etc.).  All other survey/vintage codes pass through unchanged.
+    - ``dec/pl`` 2000: PL001 → P1 via :data:`DEC_PL_GROUP_MAP`.
+    - ``dec/sf1`` and ``dec/dhc+sf1`` 2000: strip zero-padding
+      (``H001`` → ``H1``, ``P012A`` → ``P12A``).
+    - Everything else passes through unchanged.
     """
     if survey == "dec/pl":
         return DEC_PL_GROUP_MAP.get(code, code)
+    if vintage == 2000 and survey in ("dec/sf1", "dec/dhc+sf1"):
+        m = re.match(r'^([A-Z]+)0*(\d+)([A-Z]?)$', code)
+        if m:
+            return f"{m.group(1)}{int(m.group(2))}{m.group(3)}"
     return code
 
 
 def vintage_group_code(canonical: str, survey: str, vintage: int) -> str:
     """Translate a canonical group code to the vintage-specific code used by the API.
 
-    Inverse of :func:`canonical_group_code` for dec/pl 2000.
+    Inverse of :func:`canonical_group_code`:
+
+    - ``dec/pl`` 2000: P1 → PL001.
+    - ``dec/sf1`` and ``dec/dhc+sf1`` 2000: re-pad to 3-digit
+      (``H1`` → ``H001``, ``P12A`` → ``P012A``).
     """
     if survey == "dec/pl" and vintage == 2000:
         inv = {v: k for k, v in DEC_PL_GROUP_MAP.items()}
         return inv.get(canonical, canonical)
+    if vintage == 2000 and survey in ("dec/sf1", "dec/dhc+sf1"):
+        m = re.match(r'^([A-Z]+)(\d+)([A-Z]?)$', canonical)
+        if m:
+            return f"{m.group(1)}{int(m.group(2)):03d}{m.group(3)}"
     return canonical
 
 _DEFAULT_LATEST_VINTAGE = 2024
@@ -104,7 +145,14 @@ def survey_options() -> list[dict]:
 
 @lru_cache(maxsize=len(SURVEYS))
 def vintage_options(survey: str = "acs/acs5") -> list[dict]:
-    """Available vintages for the given survey, newest first."""
+    """Available vintages for the given survey, newest first.
+
+    For combined surveys (e.g. ``"dec/dhc+sf1"``) the vintages are read
+    directly from :data:`VINTAGE_SURVEY_MAP` rather than the Census API.
+    """
+    if survey in VINTAGE_SURVEY_MAP:
+        vintages = sorted(VINTAGE_SURVEY_MAP[survey].keys(), reverse=True)
+        return [{"label": str(y), "value": y} for y in vintages]
     try:
         default = SURVEYS.get(survey, SURVEYS["acs/acs5"])["default_vintage"]
         ep = Endpoint(survey, default)
@@ -125,10 +173,18 @@ def topic_options(survey: str = "acs/acs5") -> list[dict]:
 
 @lru_cache(maxsize=500)
 def _groups_for_vintage(survey: str, vintage: int) -> dict[str, dict]:
-    """Return {canonical_code: meta} for one vintage (cached)."""
-    ep = Endpoint(survey, vintage)
+    """Return {canonical_code: meta} for one vintage (cached).
+
+    For combined surveys (e.g. ``"dec/dhc+sf1"``) each vintage is fetched
+    from the appropriate actual API survey via :func:`api_survey_for_vintage`.
+    Group codes are normalised to canonical form via
+    :func:`canonical_group_code` so intersections work across vintages and
+    surveys that use different zero-padding conventions.
+    """
+    actual_survey = api_survey_for_vintage(survey, vintage)
+    ep = Endpoint(actual_survey, vintage)
     return {
-        canonical_group_code(code, survey): meta
+        canonical_group_code(code, survey, vintage): meta
         for code, meta in ep.groups.items()
     }
 

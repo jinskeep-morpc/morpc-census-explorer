@@ -1,3 +1,17 @@
+## Add dec/dhc+sf1 combined survey for cross-decade demographic comparison (#65)
+
+dec/dhc (2020) and dec/sf1 (2010, 2000) are the same demographic product
+renamed between Census decades. Added logical survey 'dec/dhc+sf1' that:
+- Routes each vintage to the correct API: 2020→dec/dhc, 2010/2000→dec/sf1
+- Normalises sf1-2000 group codes (H001→H1, P012A→P12A) via
+  canonical_group_code(code, survey, vintage), with vintage_group_code
+  re-padding for actual API calls (H1→H001 at fetch time)
+- Shows vintages [2020, 2010, 2000] from VINTAGE_SURVEY_MAP
+- Intersects groups across all selected vintages (135 common for 2020+2010,
+  112 for all three)
+- Variable code alignment and legacy label fix already handle the
+  variable-level differences between DHC (P12_001N) and SF1 (P012001)
+
 ## Fix cross-vintage dec variable code alignment (#63)
 
 When combining 2010+2020 dec/pl long frames, modern codes (P1_001) and

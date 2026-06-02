@@ -9,7 +9,7 @@ from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
 from sqlalchemy.orm import Session
 
 from app.cache import get_census_long, put_census_long
-from app.selectors import SURVEY, vintage_group_code  # kept for backward compat; not used directly below
+from app.selectors import SURVEY, api_survey_for_vintage, vintage_group_code  # kept for backward compat; not used directly below
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +54,15 @@ def fetch_long_for_vintage(
         logger.info("Cache hit: %s %s %s %s", group_code, vintage, scope, sumlevel)
         return cached
 
+    # For combined surveys, route to the actual API survey for this vintage
+    actual_survey = api_survey_for_vintage(survey, vintage)
     # Translate canonical code → the code the Census API actually uses for this vintage
     api_group_code = vintage_group_code(group_code, survey, vintage)
     logger.info(
-        "Cache miss — fetching from Census API: %s (api=%s) %s %s %s",
-        group_code, api_group_code, vintage, scope, sumlevel,
+        "Cache miss — fetching from Census API: %s (api=%s) %s %s %s %s",
+        group_code, api_group_code, actual_survey, vintage, scope, sumlevel,
     )
-    endpoint = Endpoint(survey, vintage)
+    endpoint = Endpoint(actual_survey, vintage)
     group = Group(endpoint, api_group_code)
     api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
     long_df = api.long
