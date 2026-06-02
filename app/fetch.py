@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 ALL_VALUE_TYPES = ["estimate", "moe", "percent_estimate", "percent_moe", "total"]
 
 
+def _estimate_col(long_df: pd.DataFrame) -> str:
+    """Return the column that holds the primary count/estimate value.
+
+    ACS surveys use ``estimate``; decennial surveys produce ``total``
+    (their variables carry no value-type suffix).  Falls back to ``estimate``
+    when neither is present so callers still get a consistent name.
+    """
+    if "estimate" in long_df.columns:
+        return "estimate"
+    if "total" in long_df.columns:
+        return "total"
+    return "estimate"
+
+
 def fetch_long_for_vintage(
     session: Session,
     group_code: str,
@@ -159,8 +173,9 @@ def build_table_df(
         logger.warning("Table pivot failed (%s): %s", value_mode, exc)
         return [], []
 
-    # Filter value_type columns
-    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    # Filter value_type columns — decennial data uses "total" instead of "estimate"
+    est_col = _estimate_col(long_df)
+    keep_vtypes = [est_col, "moe"] if show_moe else [est_col]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
     if wide.empty:
@@ -235,6 +250,8 @@ def build_chart_df(
             except (IndexError, ValueError, KeyError) as exc:
                 logger.warning("DimensionTable.drop(%s) failed: %s — ignoring", dim, exc)
 
+    est_col = _estimate_col(long_df)
+
     long_copy = dt.long.copy()
     for col in dt.dims.columns:
         clean = dt.dims[col].astype(str)
@@ -261,17 +278,20 @@ def build_chart_df(
             totals = (
                 dt.long[dt.long["variable"].isin(total_vars)]
                 .groupby(["geoidfq", "reference_period"], observed=True)
-                .first()[["estimate"]]
-                .rename(columns={"estimate": "_total"})
+                .first()[[est_col]]
+                .rename(columns={est_col: "_total"})
                 .reset_index()
             )
             long_copy = long_copy.merge(totals, on=["geoidfq", "reference_period"], how="left")
-            long_copy["estimate"] = (long_copy["estimate"] / long_copy["_total"] * 100).round(2)
+            long_copy[est_col] = (long_copy[est_col] / long_copy["_total"] * 100).round(2)
             long_copy = long_copy.drop(columns=["_total"])
 
-    keep = dim_cols + ["name", "reference_period", "estimate"]
+    keep = dim_cols + ["name", "reference_period", est_col]
     keep = [c for c in keep if c in long_copy.columns]
     result = long_copy[keep].reset_index(drop=True)
+    # Normalize to "estimate" so downstream callers don't need to know the survey type.
+    if est_col != "estimate":
+        result = result.rename(columns={est_col: "estimate"})
 
     # Convert reference_period to an ordered Categorical of strings so Vega-Lite
     # treats year as ordinal ("O") rather than quantitative ("Q"). This ensures
