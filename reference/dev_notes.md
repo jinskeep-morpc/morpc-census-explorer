@@ -1,3 +1,7 @@
+## 2026-06-02 — Fix long resource validation failure in frictionless export (#49)
+
+api.save() builds schema from single-vintage api.long; overwriting the CSV with multi-vintage long_df caused schema mismatch and 1000 frictionless errors. Now builds the schema from long_df directly using _build_long_schema and removes the stub schema written by api.save().
+
 ## 2026-06-02 — Add generic README.md to frictionless export zip (#47)
 
 Added _README_MD module-level constant with file structure table, naming convention explanation, data source, links to morpc-census and morpc-census-explorer repos, and contact info (dataandmaps@morpc.org).
