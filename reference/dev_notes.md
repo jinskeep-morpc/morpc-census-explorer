@@ -1,3 +1,7 @@
+## 2026-06-02 — Add generic README.md to frictionless export zip (#47)
+
+Added _README_MD module-level constant with file structure table, naming convention explanation, data source, links to morpc-census and morpc-census-explorer repos, and contact info (dataandmaps@morpc.org).
+
 ## 2026-06-02 — Use frictionless for all YAML writing and validation in export (#45)
 
 Replaced all pyyaml dump calls with frictionless Resource/Package objects. Long resource rebuild uses frictionless.Resource.from_descriptor().to_yaml() with validation. Package descriptor uses frictionless.Package.validate_descriptor() + from_descriptor().to_yaml() + Package().validate(). Fixed created field to RFC 3339 datetime format. Eliminated _NoAliasDumper workaround — frictionless handles encoding cleanly without anchors.
