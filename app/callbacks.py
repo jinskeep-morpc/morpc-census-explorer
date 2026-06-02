@@ -638,7 +638,7 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("group-dropdown", "disabled"),
         Input("topic-dropdown", "value"),
         Input("survey-dropdown", "value"),
-        Input("vintage-dropdown", "value"),
+        State("vintage-dropdown", "value"),
     )
     def update_group_options(topic_code, survey, vintage):
         survey = survey or "acs/acs5"
