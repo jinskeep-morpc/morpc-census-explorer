@@ -14,6 +14,7 @@ import frictionless
 import pandas as pd
 import yaml as _yaml
 from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group, _build_long_schema
+from app.fetch import _estimate_col
 
 # morpc makes a Census API network call at import time in the PyPI release;
 # the vendor wheel used in the container has this removed, so this is safe
@@ -437,7 +438,8 @@ def export_excel(
     is_pct = value_mode == "percent"
     wide = dt.percent() if is_pct else dt.wide()
 
-    keep_vtypes = ["estimate", "moe"] if show_moe else ["estimate"]
+    est_col = _estimate_col(long_df)
+    keep_vtypes = [est_col, "moe"] if show_moe else [est_col]
     vtype_mask = wide.columns.get_level_values("value_type").isin(keep_vtypes)
     wide = wide.loc[:, vtype_mask]
 
