@@ -24,7 +24,7 @@ try:
 except Exception:
     ExcelChart = None  # type: ignore[assignment,misc]
 
-from app.selectors import SURVEY
+from app.selectors import SURVEY, geo_col_label
 
 logger = logging.getLogger(__name__)
 
@@ -186,20 +186,6 @@ def _apply_drops(long_df: pd.DataFrame, dropped_dims: list[str] | None) -> Dimen
     return dt
 
 
-def _geo_col_label(sumlevels: list[str]) -> str:
-    """Return the human-readable label for the geography name column.
-
-    Single sumlevel → plural display name (e.g. "Counties").
-    Multiple distinct sumlevels → "Geography".
-    """
-    if len(set(sumlevels)) != 1:
-        return "Geography"
-    try:
-        from morpc_census.geos import SumLevel
-        return SumLevel(sumlevels[0]).plural.title()
-    except Exception:
-        return "Geography"
-
 
 def export_frictionless(
     long_df: pd.DataFrame,
@@ -248,7 +234,7 @@ def export_frictionless(
         long_res_name    = f"{base}.long.resource.yaml"
 
         # Determine geography column label from the selected sumlevel(s)
-        geo_label = _geo_col_label(all_sumlevels or [sumlevel])
+        geo_label = geo_col_label(all_sumlevels or [sumlevel])
 
         # Write the actual (possibly multi-vintage/multi-geo) data, renaming
         # the 'name' column to the geography label (e.g. "Counties").

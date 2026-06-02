@@ -158,6 +158,28 @@ def sumlevel_options() -> list[dict]:
         return []
 
 
+def geo_col_label(sumlevels: list[str]) -> str:
+    """Human-readable label for the geography name column.
+
+    Single sumlevel → plural display name (e.g. ``"Counties"``).
+    Multiple distinct sumlevels, empty list, or unknown code → ``"Geography"``.
+    """
+    if not sumlevels or len(set(sumlevels)) != 1:
+        return "Geography"
+    try:
+        from morpc_census.geos import SumLevel
+        return SumLevel(sumlevels[0]).plural.title()
+    except Exception:
+        return "Geography"
+
+
+def geo_col_from_geo_list(geo_list: list[dict] | None) -> str:
+    """Derive the geography column label from a geo-list-store value."""
+    if not geo_list:
+        return "Geography"
+    return geo_col_label(list(dict.fromkeys(g["sumlevel"] for g in geo_list)))
+
+
 @lru_cache(maxsize=len(HIGHLEVEL_GROUP_DESC))
 def group_options_for_topic(topic_code: str, vintage: int = _DEFAULT_LATEST_VINTAGE) -> list[dict]:
     """Groups matching a topic's two-digit prefix, fetched from the Census API.
