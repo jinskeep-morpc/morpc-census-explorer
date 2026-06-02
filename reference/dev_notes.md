@@ -1,3 +1,7 @@
+## 2026-06-02 — Fix frictionless export crash for dec/dhc+sf1 multi-vintage (#69)
+
+`export_frictionless` was picking the oldest vintage and reading `long_df["survey"].iloc[0]` (which could be 'dec/dhc'), producing `Endpoint("dec/dhc", 2000)` — invalid. Fixed by accepting the logical survey from the callback, using the newest vintage for the metadata Endpoint, and routing through `api_survey_for_vintage`. Also fixed `_long_resource_entry` and `_survey_source` to use the logical survey for correct metadata.
+
 ## 2026-06-02 — Remove dec/dhc and dec/sf1 individual survey options (#67)
 
 Removed the `dec/dhc` and `dec/sf1` entries from the `SURVEYS` dict in `selectors.py`. The combined `dec/dhc+sf1` survey covers all three vintages (2020 via DHC, 2010/2000 via SF1), making the individual options redundant. Also updated `_DEC_VINTAGE_FALLBACKS` to replace both entries with a single `dec/dhc+sf1` fallback covering 2000–2020.
