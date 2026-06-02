@@ -70,6 +70,50 @@ def fetch_long_for_vintage(
     return long_df
 
 
+def _dec_label_segments(label: str) -> tuple[str, ...]:
+    """Parse a variable_label into stripped segments for cross-vintage matching."""
+    return tuple(s.rstrip(":").strip() for s in label.split("!!") if s.rstrip(":").strip())
+
+
+def _align_dec_variable_codes(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize variable codes across dec vintages using label-segment matching.
+
+    Modern (2020) and legacy (2010/2000) decennial codes differ in format:
+    ``P1_001`` vs ``P001001``.  Both represent the same variable and produce
+    identical label segments after stripping colons and whitespace.
+
+    This function maps every row to the newest vintage's variable code so that
+    ``DimensionTable.wide()`` can pivot across vintages without producing
+    duplicate/unaligned columns.  Rows whose label segments have no match in
+    the newest vintage (i.e. variables exclusive to an older vintage) keep
+    their original code — they will appear as separate columns, which is the
+    correct behaviour when a variable genuinely doesn't exist in all vintages.
+    """
+    if df.empty or "reference_period" not in df.columns:
+        return df
+    vintages = df["reference_period"].unique()
+    if len(vintages) <= 1:
+        return df
+
+    newest = int(df["reference_period"].max())
+    newest_rows = (
+        df[df["reference_period"] == newest][["variable", "variable_label"]]
+        .drop_duplicates("variable")
+    )
+    seg_to_code: dict[tuple, str] = {
+        _dec_label_segments(row["variable_label"]): row["variable"]
+        for _, row in newest_rows.iterrows()
+    }
+    if not seg_to_code:
+        return df
+
+    df = df.copy()
+    df["variable"] = df["variable_label"].map(
+        lambda lbl: seg_to_code.get(_dec_label_segments(lbl))
+    ).fillna(df["variable"])
+    return df
+
+
 def fetch_all_vintages(
     session: Session,
     group_code: str,
@@ -83,7 +127,12 @@ def fetch_all_vintages(
         fetch_long_for_vintage(session, group_code, vintage, scope, sumlevel, survey)
         for vintage in vintages
     ]
-    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+    if not dfs:
+        return pd.DataFrame()
+    combined = pd.concat(dfs, ignore_index=True)
+    if len(vintages) > 1 and survey.startswith("dec/"):
+        combined = _align_dec_variable_codes(combined)
+    return combined
 
 
 def fetch_all_geos(

@@ -1,3 +1,16 @@
+## Fix cross-vintage dec variable code alignment (#63)
+
+When combining 2010+2020 dec/pl long frames, modern codes (P1_001) and
+legacy codes (P001001) represent the same variable but DimensionTable.wide()
+treated them as separate columns. Fixed with _align_dec_variable_codes() in
+fetch.py, which maps all rows to the newest vintage's variable codes via
+label-segment matching (strips colons/whitespace before matching). Applied
+in fetch_all_vintages() for dec surveys with multiple vintages.
+
+Also: updated vendor wheel to morpc_census-0.4.2 (fixes legacy dec label
+stripping — first segment 'Total' was being dropped). Purged 1116 stale
+legacy dec cache rows stored with wrong labels.
+
 ## Vintage-first UI with cross-vintage group intersection (#61)
 
 Reordered the data selection sidebar to Survey → Vintage → Topic → Group,
