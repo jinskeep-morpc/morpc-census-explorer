@@ -105,6 +105,42 @@ def _export_frictionless_mocked(df, group_code="B01001", vintages=None, chart_sp
 # export_frictionless
 # ---------------------------------------------------------------------------
 
+class TestGeoColLabel:
+    def test_single_sumlevel_returns_plural(self):
+        from app.exports import _geo_col_label
+        label = _geo_col_label(["050"])
+        assert label == "Counties"
+
+    def test_multiple_sumlevels_returns_geography(self):
+        from app.exports import _geo_col_label
+        label = _geo_col_label(["050", "140"])
+        assert label == "Geography"
+
+    def test_unknown_code_falls_back_to_geography(self):
+        from app.exports import _geo_col_label
+        label = _geo_col_label(["999"])
+        assert label == "Geography"
+
+    def test_long_csv_uses_geo_label_as_column(self):
+        from app.exports import export_frictionless
+        fake_valid = MagicMock(valid=True, stats={})
+        mock_api = _mock_census_api()
+        with patch("app.exports.CensusAPI", return_value=mock_api), \
+             patch("app.exports.Endpoint"), \
+             patch("app.exports.Group"), \
+             patch("frictionless.Resource.validate", return_value=fake_valid), \
+             patch("frictionless.Package.validate", return_value=fake_valid):
+            result = export_frictionless(
+                _make_long(), "B01001", [2023], _SCOPE, _SUMLEVEL,
+                all_sumlevels=["050"],
+            )
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            csv_name = next(n for n in zf.namelist() if n.endswith(".long.csv"))
+            header = zf.read(csv_name).decode().splitlines()[0]
+        assert "Counties" in header
+        assert "name" not in header.split(",")
+
+
 class TestExportFrictionless:
     def test_returns_bytes(self):
         result = _export_frictionless_mocked(_make_long())

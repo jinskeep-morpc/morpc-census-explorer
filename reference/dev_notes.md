@@ -1,3 +1,7 @@
+## 2026-06-02 — Dynamic geography column label in long CSV export (#53)
+
+Added _geo_col_label() helper. Single sumlevel -> SumLevel.plural.title() (e.g. 'Counties'). Multiple sumlevels -> 'Geography'. Renames 'name' col in long CSV and patches schema field to match. all_sumlevels passed from geo_list in callback.
+
 ## 2026-06-02 — Drop empty export columns + plain text README + v0.3.4 wheel (#51, #105)
 
 DimensionTable._to_wide_flat() now drops all-null data columns; schema updates automatically. README converted from Markdown to plain text (.txt) with section headers and indented file descriptions. Updated vendor to morpc_census-0.3.4.
