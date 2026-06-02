@@ -21,14 +21,16 @@ def _estimate_col(long_df: pd.DataFrame) -> str:
     """Return the column that holds the primary count/estimate value.
 
     ACS surveys use ``estimate``; decennial surveys produce ``total``
-    (their variables carry no value-type suffix).  Falls back to ``estimate``
-    when neither is present so callers still get a consistent name.
+    (their variables carry no value-type suffix).  Checks for non-null values
+    because the DB cache stores all value-type columns, so ``estimate`` may be
+    present but entirely null when the survey only produced ``total``.
     """
-    if "estimate" in long_df.columns:
+    if "estimate" in long_df.columns and long_df["estimate"].notna().any():
         return "estimate"
-    if "total" in long_df.columns:
+    if "total" in long_df.columns and long_df["total"].notna().any():
         return "total"
-    return "estimate"
+    # Fallback: prefer estimate for column naming consistency
+    return "estimate" if "estimate" in long_df.columns else "total"
 
 
 def fetch_long_for_vintage(
