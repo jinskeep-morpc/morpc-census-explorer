@@ -78,7 +78,9 @@ def _mock_census_api(group_code: str = "B01001", vintage: int = 2023) -> MagicMo
         # api.save() writes {name}.schema.yaml and {name}.resource.yaml;
         # exports.py renames them to {name}.long.schema.yaml / .long.resource.yaml
         (d / f"{name}.schema.yaml").write_text("fields: []\n")
-        (d / f"{name}.resource.yaml").write_text("name: test\nschema: placeholder\n")
+        (d / f"{name}.resource.yaml").write_text(
+            f"name: {name}\npath: {mock_api.filename}\nschema: {name}.schema.yaml\n"
+        )
 
     mock_api.save.side_effect = _fake_save
     return mock_api
@@ -90,9 +92,12 @@ def _export_frictionless_mocked(df, group_code="B01001", vintages=None, chart_sp
         vintages = [2023]
     vintage = sorted(vintages)[0]
     mock_api = _mock_census_api(group_code, vintage)
+    fake_valid = MagicMock(valid=True, stats={})
     with patch("app.exports.CensusAPI", return_value=mock_api), \
          patch("app.exports.Endpoint"), \
-         patch("app.exports.Group"):
+         patch("app.exports.Group"), \
+         patch("frictionless.Resource.validate", return_value=fake_valid), \
+         patch("frictionless.Package.validate", return_value=fake_valid):
         return export_frictionless(df, group_code, vintages, _SCOPE, _SUMLEVEL, chart_spec=chart_spec)
 
 
@@ -154,9 +159,12 @@ class TestExportFrictionless:
     def test_censusapi_called_with_first_vintage(self):
         df = _make_long()
         mock_api = _mock_census_api("B01001", 2022)
+        fake_valid = MagicMock(valid=True, stats={})
         with patch("app.exports.CensusAPI", return_value=mock_api) as mock_cls, \
              patch("app.exports.Endpoint") as mock_ep, \
-             patch("app.exports.Group"):
+             patch("app.exports.Group"), \
+             patch("frictionless.Resource.validate", return_value=fake_valid), \
+             patch("frictionless.Package.validate", return_value=fake_valid):
             export_frictionless(df, "B01001", [2022, 2023], _SCOPE, _SUMLEVEL)
         mock_ep.assert_called_once_with("acs/acs5", 2022)
 
@@ -319,9 +327,12 @@ class TestComputeFrictionlessDownload:
     def test_returns_download_dict_on_success(self):
         store = serialise_long(_make_long())
         mock_api = _mock_census_api()
+        fake_valid = MagicMock(valid=True, stats={})
         with patch("app.exports.CensusAPI", return_value=mock_api), \
              patch("app.exports.Endpoint"), \
-             patch("app.exports.Group"):
+             patch("app.exports.Group"), \
+             patch("frictionless.Resource.validate", return_value=fake_valid), \
+             patch("frictionless.Package.validate", return_value=fake_valid):
             result = compute_frictionless_download(store, "B01001", [2023], _GEO_LIST)
         assert isinstance(result, dict)
         assert result["filename"].endswith(".zip")
@@ -330,9 +341,12 @@ class TestComputeFrictionlessDownload:
     def test_filename_includes_group_and_vintage(self):
         store = serialise_long(_make_long())
         mock_api = _mock_census_api()
+        fake_valid = MagicMock(valid=True, stats={})
         with patch("app.exports.CensusAPI", return_value=mock_api), \
              patch("app.exports.Endpoint"), \
-             patch("app.exports.Group"):
+             patch("app.exports.Group"), \
+             patch("frictionless.Resource.validate", return_value=fake_valid), \
+             patch("frictionless.Package.validate", return_value=fake_valid):
             result = compute_frictionless_download(store, "B01001", [2023], _GEO_LIST)
         assert "b01001" in result["filename"]
         assert "2023" in result["filename"]

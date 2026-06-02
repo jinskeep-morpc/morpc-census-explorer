@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import logging
 import tempfile
 import zipfile
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
+import frictionless
 import pandas as pd
 import yaml as _yaml
-
-
-class _NoAliasDumper(_yaml.SafeDumper):
-    """SafeDumper that never emits anchors or aliases."""
-    def ignore_aliases(self, data):
-        return True
-
-
-def _yaml_dump(obj: object) -> str:
-    return _yaml.dump(obj, Dumper=_NoAliasDumper, default_flow_style=False,
-                      allow_unicode=True, sort_keys=False)
 from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
 
 # morpc makes a Census API network call at import time in the PyPI release;
@@ -60,27 +51,24 @@ def _long_resource_entry(
     vintages: list[int],
     scope: str,
 ) -> dict:
-    """Build a datapackage resource entry dict for the raw long CSV."""
+    """Build a frictionless resource descriptor dict for the raw long CSV."""
     concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
     universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
     survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else SURVEY
     year_str = ", ".join(str(v) for v in sorted(vintages))
 
-    title = f"{concept} — raw long-form data ({year_str})"
-    description = (
-        f"Raw long-format Census data for {concept} from {survey} ({year_str}), "
-        f"{scope}. Each row is one variable for one geography. "
-        f"Universe: {universe}."
-    )
-
     return {
         "name": "long-data",
-        "title": title,
-        "description": description,
+        "title": f"{concept} — raw long-form data ({year_str})",
+        "description": (
+            f"Raw long-format Census data for {concept} from {survey} ({year_str}), "
+            f"{scope}. Each row is one variable for one geography. "
+            f"Universe: {universe}."
+        ),
         "path": csv_name,
         "schema": schema_name,
         "mediatype": "text/csv",
-        "sources": [_CENSUS_SOURCE],
+        "sources": [dict(_CENSUS_SOURCE)],
     }
 
 
@@ -108,15 +96,15 @@ def export_frictionless(
 ) -> bytes:
     """Return zip bytes containing a Frictionless Data Package.
 
-    The package includes:
-
     All files share the same base name as CensusAPI produces, e.g.
     ``census-acs-acs5-2023-county-franklin-b01001``:
 
     - ``{base}.long.csv`` / ``.long.schema.yaml`` / ``.long.resource.yaml``
     - ``{base}.table.csv`` / ``.table.schema.yaml`` / ``.table.resource.yaml``
     - ``{base}.chart.vega.json`` / ``.chart.svg`` (when chart_spec given)
-    - ``{base}.package.yaml`` — Frictionless Data Package descriptor
+    - ``{base}.package.yaml`` — validated Frictionless Data Package descriptor
+
+    All YAML files are written and validated through the frictionless library.
     """
     import json
 
@@ -128,37 +116,41 @@ def export_frictionless(
     with tempfile.TemporaryDirectory() as _tmp:
         tmpdir = Path(_tmp)
 
-        # ── 1. Raw long-form data ────────────────────────────────────────────
+        # ── 1. Raw long-form data ─────────────────────────────────────────────
         api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
         api.save(tmpdir)
         # Overwrite the stub CSV with the actual (possibly multi-vintage) data
         long_df.to_csv(tmpdir / api.filename, index=False)
 
         # Use api.name as the shared base for every file in the package
-        # (e.g. "census-acs-acs5-2023-county-franklin-b01001")
+        # e.g. "census-acs-acs5-2023-county-franklin-b01001"
         base = api.name
 
         # api.save() writes {base}.schema.yaml / {base}.resource.yaml (no .long. infix).
-        # Rename them to {base}.long.schema.yaml / {base}.long.resource.yaml so every
-        # file in the package carries a consistent infix that matches .long.csv.
-        old_schema_path   = tmpdir / f"{base}.schema.yaml"
-        old_resource_path = tmpdir / f"{base}.resource.yaml"
-
+        # Rename the schema, then rebuild the resource via frictionless with the
+        # updated path so the file is properly encoded and validated.
         long_csv_name    = f"{base}.long.csv"
         long_schema_name = f"{base}.long.schema.yaml"
         long_res_name    = f"{base}.long.resource.yaml"
 
-        old_schema_path.rename(tmpdir / long_schema_name)
+        (tmpdir / f"{base}.schema.yaml").rename(tmpdir / long_schema_name)
 
-        # Patch the schema reference inside the resource YAML before renaming it
-        res_raw = _yaml.safe_load(old_resource_path.read_text(encoding="utf-8"))
-        res_raw["schema"] = long_schema_name
-        (tmpdir / long_res_name).write_text(_yaml_dump(res_raw), encoding="utf-8")
-        old_resource_path.unlink()
+        old_res_descriptor = _yaml.safe_load(
+            (tmpdir / f"{base}.resource.yaml").read_text(encoding="utf-8")
+        )
+        old_res_descriptor["schema"] = long_schema_name
+        long_resource = frictionless.Resource.from_descriptor(old_res_descriptor)
+        with contextlib.chdir(tmpdir):
+            long_resource.to_yaml(long_res_name)
+            result = frictionless.Resource(long_res_name).validate()
+        if not result.valid:
+            logger.error("Long resource validation failed: %s", result.stats)
+            raise RuntimeError("Long resource validation failed after save.")
+        (tmpdir / f"{base}.resource.yaml").unlink()
 
-        # ── 2. Dimension table ───────────────────────────────────────────────
+        # ── 2. Dimension table ────────────────────────────────────────────────
         dt = _apply_drops(long_df, dropped_dims)
-        table_name = f"{base}.table"      # DimensionTable.save() appends .csv / .schema.yaml / .resource.yaml
+        table_name = f"{base}.table"   # DimensionTable.save() appends .csv / .schema.yaml / .resource.yaml
 
         concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
         universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
@@ -169,55 +161,43 @@ def export_frictionless(
         else:
             geo_names = sorted(long_df["geoidfq"].dropna().unique().tolist())
 
-        geo_summary = (
-            geo_names[0] if len(geo_names) == 1
-            else f"{len(geo_names)} geographies"
-        )
+        geo_summary = geo_names[0] if len(geo_names) == 1 else f"{len(geo_names)} geographies"
         dropped_note = (
-            f" Dimensions collapsed: {', '.join(dropped_dims)}."
-            if dropped_dims else ""
+            f" Dimensions collapsed: {', '.join(dropped_dims)}." if dropped_dims else ""
         )
         table_description = (
             f"Dimension table for {concept} from {survey} ({year_str}), "
             f"{geo_summary}.{dropped_note} Universe: {universe}."
         )
-
         table_title = title or f"{concept} — dimension table ({year_str})"
 
-        dt.save(
-            tmpdir,
-            table_name,
-            value_mode=value_mode,
-            title=table_title,
-            description=table_description,
-        )
+        # dt.save() writes the CSV, schema YAML, and a validated resource YAML
+        dt.save(tmpdir, table_name, value_mode=value_mode,
+                title=table_title, description=table_description)
 
         table_csv_name    = f"{table_name}.csv"
         table_schema_name = f"{table_name}.schema.yaml"
         table_res_name    = f"{table_name}.resource.yaml"
 
-        # ── 3. Chart artifacts ───────────────────────────────────────────────
-        resources = []
-
-        # Long data resource
-        resources.append(_long_resource_entry(long_df, long_csv_name, long_schema_name, group_code, vintages, scope))
-
-        # Dimension table resource — read back from the written YAML for consistency
-        resources.append({
-            "name": "dimension-table",
-            "title": table_title,
-            "description": table_description,
-            "path": table_csv_name,
-            "schema": table_schema_name,
-            "mediatype": "text/csv",
-            "_concept":  concept,
-            "_universe": universe,
-            "_survey":   survey,
-            "_geographies": geo_names,
-            "_vintages": sorted(vintages),
-            "_value_mode": value_mode,
-            "_dimensions_dropped": list(dropped_dims or []),
-        })
+        # ── 3. Chart artifacts ────────────────────────────────────────────────
+        resources = [
+            _long_resource_entry(long_df, long_csv_name, long_schema_name, group_code, vintages, scope),
+            {
+                "name": "dimension-table",
+                "title": table_title,
+                "description": table_description,
+                "path": table_csv_name,
+                "schema": table_schema_name,
+                "mediatype": "text/csv",
+                "_concept":            concept,
+                "_universe":           universe,
+                "_survey":             survey,
+                "_geographies":        geo_names,
+                "_vintages":           sorted(vintages),
+                "_value_mode":         value_mode,
+                "_dimensions_dropped": list(dropped_dims or []),
+            },
+        ]
 
         if chart_spec:
             spec_filename = f"{base}.chart.vega.json"
@@ -225,17 +205,20 @@ def export_frictionless(
             resources.append({
                 "name": "chart-spec",
                 "title": "Vega-Lite chart specification",
-                "description": "Vega-Lite JSON specification for the rendered chart. "
-                               "Open in the Vega Editor at https://vega.github.io/editor.",
+                "description": (
+                    "Vega-Lite JSON specification for the rendered chart. "
+                    "Open in the Vega Editor at https://vega.github.io/editor."
+                ),
                 "path": spec_filename,
                 "mediatype": "application/json",
             })
 
             try:
                 import vl_convert as vlc
-                svg_str = vlc.vegalite_to_svg(chart_spec)
                 svg_filename = f"{base}.chart.svg"
-                (tmpdir / svg_filename).write_text(svg_str, encoding="utf-8")
+                (tmpdir / svg_filename).write_text(
+                    vlc.vegalite_to_svg(chart_spec), encoding="utf-8"
+                )
                 resources.append({
                     "name": "chart",
                     "title": "Rendered chart (SVG)",
@@ -246,49 +229,52 @@ def export_frictionless(
             except Exception as exc:
                 logger.warning("SVG render failed: %s", exc)
 
-        # ── 4. datapackage.yaml ───────────────────────────────────────────────
-        pkg_name = base
+        # ── 4. Package YAML (frictionless Package, validated) ─────────────────
         geo_list_str = (
             geo_names[0] if len(geo_names) == 1
             else f"{', '.join(geo_names[:3])}{'...' if len(geo_names) > 3 else ''}"
         )
         pkg_title = title or f"{concept} ({year_str})"
-        pkg_description = (
-            f"U.S. Census Bureau ACS 5-Year Estimates — {concept}. "
-            f"Coverage: {geo_list_str}, vintage(s) {year_str}. "
-            f"Universe: {universe}. "
-            f"Survey: {survey}. "
-            f"Exported from the MORPC Census Explorer."
-        )
-
-        keywords = ["census", "acs", "acs5", "demographics", group_code.lower()]
-        if sumlevel:
-            keywords.append(sumlevel.lower().replace(" ", "-"))
-
-        datapackage = {
-            "name": pkg_name,
+        pkg_descriptor = {
+            "name": base,
             "title": pkg_title,
-            "description": pkg_description,
+            "description": (
+                f"U.S. Census Bureau ACS 5-Year Estimates — {concept}. "
+                f"Coverage: {geo_list_str}, vintage(s) {year_str}. "
+                f"Universe: {universe}. Survey: {survey}. "
+                f"Exported from the MORPC Census Explorer."
+            ),
             "version": "1.0.0",
-            "created": date.today().isoformat(),
-            "keywords": keywords,
-            "licenses": [_LICENSE],
-            "sources":  [_CENSUS_SOURCE],
-            "contributors": [
-                {**_MORPC_SOURCE, "email": "data@morpc.org", "role": "wrangler"},
-            ],
-            "_concept":  concept,
-            "_universe": universe,
-            "_survey":   survey,
+            "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "keywords": (
+                ["census", "acs", "acs5", "demographics", group_code.lower()]
+                + ([sumlevel.lower().replace(" ", "-")] if sumlevel else [])
+            ),
+            "licenses": [dict(_LICENSE)],
+            "sources":  [dict(_CENSUS_SOURCE)],
+            "contributors": [{**_MORPC_SOURCE, "email": "data@morpc.org", "role": "wrangler"}],
+            "_concept":     concept,
+            "_universe":    universe,
+            "_survey":      survey,
             "_geographies": geo_names,
-            "_vintages": sorted(vintages),
-            "resources": resources,
+            "_vintages":    sorted(vintages),
+            "resources":    resources,
         }
 
-        package_filename = f"{base}.package.yaml"
-        (tmpdir / package_filename).write_text(_yaml_dump(datapackage), encoding="utf-8")
+        desc_result = frictionless.Package.validate_descriptor(pkg_descriptor)
+        if not desc_result.valid:
+            raise ValueError(f"Package descriptor invalid: {desc_result}")
 
-        # ── 5. Zip everything ────────────────────────────────────────────────
+        package = frictionless.Package.from_descriptor(pkg_descriptor)
+        package_filename = f"{base}.package.yaml"
+        with contextlib.chdir(tmpdir):
+            package.to_yaml(package_filename)
+            pkg_result = frictionless.Package(package_filename).validate()
+        if not pkg_result.valid:
+            logger.error("Package validation failed: %s", pkg_result.stats)
+            raise RuntimeError("Package validation failed after save.")
+
+        # ── 5. Zip everything ─────────────────────────────────────────────────
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for fp in sorted(tmpdir.iterdir()):
