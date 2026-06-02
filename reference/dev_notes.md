@@ -1,3 +1,7 @@
+## 2026-06-02 — Uniform export file naming matching CensusAPI convention (#43)
+
+All exported files now share the same base name as CensusAPI.name (e.g. census-acs-acs5-2023-county-franklin-b01001). Renamed long schema/resource files to carry the .long. infix. Package descriptor renamed from datapackage.yaml to {base}.package.yaml.
+
 ## 2026-06-01 — Rich frictionless data package export (#41)
 
 Expanded export_frictionless to produce a full data package: raw long CSV + schema/resource YAMLs, dimension table (flat wide CSV after drops) + schema/resource YAMLs, Vega-Lite chart spec JSON, rendered SVG. datapackage.yaml now includes rich metadata: concept, universe, survey, geography list, vintages, CC-BY-4.0 license, MORPC contributor, and inline resource entries for both long data and dimension table. Callback now passes dropped_dims and value_mode states so the exported table reflects user's current view.

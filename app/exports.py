@@ -98,11 +98,13 @@ def export_frictionless(
 
     The package includes:
 
-    - ``{base}.long.csv`` + schema/resource YAMLs — raw long-form Census data
-    - ``{base}.table.csv`` + schema/resource YAMLs — dimension table (after drops)
-    - ``{base}.chart.vega.json`` — Vega-Lite chart specification (when chart_spec given)
-    - ``{base}.chart.svg`` — rendered SVG chart (when chart_spec given and vl_convert available)
-    - ``datapackage.yaml`` — Frictionless Data Package descriptor with full metadata
+    All files share the same base name as CensusAPI produces, e.g.
+    ``census-acs-acs5-2023-county-franklin-b01001``:
+
+    - ``{base}.long.csv`` / ``.long.schema.yaml`` / ``.long.resource.yaml``
+    - ``{base}.table.csv`` / ``.table.schema.yaml`` / ``.table.resource.yaml``
+    - ``{base}.chart.vega.json`` / ``.chart.svg`` (when chart_spec given)
+    - ``{base}.package.yaml`` — Frictionless Data Package descriptor
     """
     import json
     import yaml
@@ -110,8 +112,7 @@ def export_frictionless(
     vintage = sorted(vintages)[0]
     endpoint = Endpoint(SURVEY, vintage)
     group = Group(endpoint, group_code)
-    vintage_str = "_".join(str(v) for v in sorted(vintages))
-    base = f"census-acs5-{group_code.lower()}-{vintage_str}"
+    year_str = ", ".join(str(v) for v in sorted(vintages))
 
     with tempfile.TemporaryDirectory() as _tmp:
         tmpdir = Path(_tmp)
@@ -122,13 +123,34 @@ def export_frictionless(
         # Overwrite the stub CSV with the actual (possibly multi-vintage) data
         long_df.to_csv(tmpdir / api.filename, index=False)
 
-        long_csv_name    = api.filename                                             # e.g. "b01001-2023.long.csv"
-        long_schema_name = long_csv_name.replace(".long.csv", ".schema.yaml")       # e.g. "b01001-2023.schema.yaml"
-        long_res_name    = long_csv_name.replace(".long.csv", ".resource.yaml")     # e.g. "b01001-2023.resource.yaml"
+        # Use api.name as the shared base for every file in the package
+        # (e.g. "census-acs-acs5-2023-county-franklin-b01001")
+        base = api.name
+
+        # api.save() writes {base}.schema.yaml / {base}.resource.yaml (no .long. infix).
+        # Rename them to {base}.long.schema.yaml / {base}.long.resource.yaml so every
+        # file in the package carries a consistent infix that matches .long.csv.
+        old_schema_path   = tmpdir / f"{base}.schema.yaml"
+        old_resource_path = tmpdir / f"{base}.resource.yaml"
+
+        long_csv_name    = f"{base}.long.csv"
+        long_schema_name = f"{base}.long.schema.yaml"
+        long_res_name    = f"{base}.long.resource.yaml"
+
+        old_schema_path.rename(tmpdir / long_schema_name)
+
+        # Patch the schema reference inside the resource YAML before renaming it
+        res_raw = yaml.safe_load(old_resource_path.read_text(encoding="utf-8"))
+        res_raw["schema"] = long_schema_name
+        (tmpdir / long_res_name).write_text(
+            yaml.dump(res_raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        old_resource_path.unlink()
 
         # ── 2. Dimension table ───────────────────────────────────────────────
         dt = _apply_drops(long_df, dropped_dims)
-        table_name = f"{base}.table"               # DimensionTable.save() appends .csv etc.
+        table_name = f"{base}.table"      # DimensionTable.save() appends .csv / .schema.yaml / .resource.yaml
 
         concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
         universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
@@ -139,7 +161,6 @@ def export_frictionless(
         else:
             geo_names = sorted(long_df["geoidfq"].dropna().unique().tolist())
 
-        year_str = ", ".join(str(v) for v in sorted(vintages))
         geo_summary = (
             geo_names[0] if len(geo_names) == 1
             else f"{len(geo_names)} geographies"
@@ -256,7 +277,8 @@ def export_frictionless(
             "resources": resources,
         }
 
-        (tmpdir / "datapackage.yaml").write_text(
+        package_filename = f"{base}.package.yaml"
+        (tmpdir / package_filename).write_text(
             yaml.dump(datapackage, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )

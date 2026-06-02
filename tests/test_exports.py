@@ -69,13 +69,16 @@ def _mock_census_api(group_code: str = "B01001", vintage: int = 2023) -> MagicMo
     """Return a CensusAPI mock that writes placeholder files on save()."""
     name = f"census-acs5-acs5-{vintage}-{_SUMLEVEL}-{_SCOPE}-{group_code.lower()}"
     mock_api = MagicMock()
+    mock_api.name = name
     mock_api.filename = f"{name}.long.csv"
 
     def _fake_save(outdir):
         d = Path(outdir)
         (d / mock_api.filename).write_text("placeholder\n")
+        # api.save() writes {name}.schema.yaml and {name}.resource.yaml;
+        # exports.py renames them to {name}.long.schema.yaml / .long.resource.yaml
         (d / f"{name}.schema.yaml").write_text("fields: []\n")
-        (d / f"{name}.resource.yaml").write_text("name: test\n")
+        (d / f"{name}.resource.yaml").write_text("name: test\nschema: placeholder\n")
 
     mock_api.save.side_effect = _fake_save
     return mock_api
@@ -113,17 +116,17 @@ class TestExportFrictionless:
             names = zf.namelist()
         assert any(n.endswith(".long.csv") for n in names)
 
-    def test_zip_contains_schema_yaml(self):
+    def test_zip_contains_long_schema_yaml(self):
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert any(n.endswith(".schema.yaml") for n in names)
+        assert any(n.endswith(".long.schema.yaml") for n in names)
 
-    def test_zip_contains_resource_yaml(self):
+    def test_zip_contains_long_resource_yaml(self):
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert any(n.endswith(".resource.yaml") for n in names)
+        assert any(n.endswith(".long.resource.yaml") for n in names)
 
     def test_csv_contains_all_rows(self):
         df = _make_long()
@@ -157,16 +160,17 @@ class TestExportFrictionless:
             export_frictionless(df, "B01001", [2022, 2023], _SCOPE, _SUMLEVEL)
         mock_ep.assert_called_once_with("acs/acs5", 2022)
 
-    def test_zip_contains_datapackage_yaml(self):
+    def test_zip_contains_package_yaml(self):
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             names = zf.namelist()
-        assert "datapackage.yaml" in names
+        assert any(n.endswith(".package.yaml") for n in names)
 
-    def test_datapackage_yaml_has_required_keys(self):
+    def test_package_yaml_has_required_keys(self):
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
-            content = zf.read("datapackage.yaml").decode()
+            pkg_name = next(n for n in zf.namelist() if n.endswith(".package.yaml"))
+            content = zf.read(pkg_name).decode()
         import yaml
         pkg = yaml.safe_load(content)
         assert "name" in pkg
@@ -195,7 +199,8 @@ class TestExportFrictionless:
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             import yaml
-            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+            pkg_file = next(n for n in zf.namelist() if n.endswith(".package.yaml"))
+            pkg = yaml.safe_load(zf.read(pkg_file).decode())
         resource_names = [r["name"] for r in pkg["resources"]]
         assert "long-data" in resource_names
         assert "dimension-table" in resource_names
@@ -229,7 +234,8 @@ class TestExportFrictionless:
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             import yaml
-            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+            pkg_file = next(n for n in zf.namelist() if n.endswith(".package.yaml"))
+            pkg = yaml.safe_load(zf.read(pkg_file).decode())
         assert pkg.get("_concept") == "Sex by Age"
         assert "Total population" in pkg.get("_universe", "")
 
@@ -237,14 +243,16 @@ class TestExportFrictionless:
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             import yaml
-            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+            pkg_file = next(n for n in zf.namelist() if n.endswith(".package.yaml"))
+            pkg = yaml.safe_load(zf.read(pkg_file).decode())
         assert "Franklin County" in pkg.get("_geographies", [])
 
     def test_datapackage_includes_license(self):
         result = _export_frictionless_mocked(_make_long())
         with zipfile.ZipFile(io.BytesIO(result)) as zf:
             import yaml
-            pkg = yaml.safe_load(zf.read("datapackage.yaml").decode())
+            pkg_file = next(n for n in zf.namelist() if n.endswith(".package.yaml"))
+            pkg = yaml.safe_load(zf.read(pkg_file).decode())
         assert any("CC-BY" in lic.get("name", "") for lic in pkg.get("licenses", []))
 
 
