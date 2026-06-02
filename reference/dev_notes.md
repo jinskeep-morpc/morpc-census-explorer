@@ -1,3 +1,7 @@
+## 2026-06-02 — Geography label in chart options and facet (closes #55)
+
+Moved geo_col_label/geo_col_from_geo_list to selectors.py. Chart axis callbacks now rename 'name' to the sumlevel plural (e.g. Counties) or 'Geography'. _chart_axis_options_from_long and _build_chart_title accept geo_col param. _field_label no longer hardcodes geography->Geography.
+
 ## 2026-06-02 — Dynamic geography column label in long CSV export (#53)
 
 Added _geo_col_label() helper. Single sumlevel -> SumLevel.plural.title() (e.g. 'Counties'). Multiple sumlevels -> 'Geography'. Renames 'name' col in long CSV and patches schema field to match. all_sumlevels passed from geo_list in callback.

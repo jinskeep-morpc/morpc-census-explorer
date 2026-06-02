@@ -25,7 +25,7 @@ from app.fetch import (
     serialise_long,
 )
 from morpc_census.api import DimensionTable
-from app.selectors import group_options_for_topic, scope_label
+from app.selectors import geo_col_from_geo_list, group_options_for_topic, scope_label
 
 
 # ---------------------------------------------------------------------------
@@ -314,14 +314,14 @@ def compute_excel_download(
         return no_update
 
 
-def _chart_axis_options_from_long(chart_df: pd.DataFrame) -> list[dict]:
+def _chart_axis_options_from_long(chart_df: pd.DataFrame, geo_col: str = "Geography") -> list[dict]:
     """Return dropdown options from a chart-ready long DataFrame."""
     if chart_df.empty:
         return []
-    dim_cols = [c for c in chart_df.columns if c not in ("geography", "year", "value")]
+    dim_cols = [c for c in chart_df.columns if c not in (geo_col, "year", "value")]
     options = [{"label": col, "value": col} for col in dim_cols]
-    if "geography" in chart_df.columns:
-        options.append({"label": "Geography", "value": "geography"})
+    if geo_col in chart_df.columns:
+        options.append({"label": geo_col, "value": geo_col})
     if "year" in chart_df.columns:
         options.append({"label": "Year", "value": "year"})
     options.append({"label": "Value", "value": "value"})
@@ -332,7 +332,7 @@ def _field_label(field: str | None) -> str:
     """Return a human-readable label for a chart field name."""
     if not field:
         return ""
-    return {"geography": "Geography", "year": "Year", "value": ""}.get(field, field)
+    return {"year": "Year", "value": ""}.get(field, field)
 
 
 def _build_chart_title(
@@ -341,6 +341,7 @@ def _build_chart_title(
     vintages: list[int] | None,
     universe: str | None,
     geo_list: list[dict] | None,
+    geo_col: str = "Geography",
 ) -> str:
     """Build a smart chart title from selected axes.
 
@@ -358,8 +359,8 @@ def _build_chart_title(
 
     x_label = _field_label(x_field)
     color_label = _field_label(color_field)
-    # Omit color clause when color is geography (already in geo suffix) or same as x
-    if color_label and color_label != x_label and color_field != "geography":
+    # Omit color clause when color is the geo column (already in geo suffix) or same as x
+    if color_label and color_label != x_label and color_field != geo_col:
         axis_str = f"{color_label} by {x_label}" if x_label else color_label
     else:
         axis_str = x_label
@@ -741,8 +742,9 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("chart-facet", "value"),
         Input("long-data-store", "data"),
         Input("dropped-dims-store", "data"),
+        State("geo-list-store", "data"),
     )
-    def update_chart_axis_options(store_data, dropped_dims):
+    def update_chart_axis_options(store_data, dropped_dims, geo_list):
         empty: list = []
         if not store_data:
             return empty, None, empty, None, empty, None, empty, None
@@ -750,13 +752,14 @@ def register_callbacks(app: dash.Dash) -> None:
         chart_df = build_chart_df(long_df, dropped_dims)
         if chart_df.empty:
             return empty, None, empty, None, empty, None, empty, None
-        chart_df = chart_df.rename(columns={"name": "geography", "reference_period": "year", "estimate": "value"})
-        options = _chart_axis_options_from_long(chart_df)
+        geo_col = geo_col_from_geo_list(geo_list)
+        chart_df = chart_df.rename(columns={"name": geo_col, "reference_period": "year", "estimate": "value"})
+        options = _chart_axis_options_from_long(chart_df, geo_col)
         vals = [o["value"] for o in options]
-        dim_vals = [v for v in vals if v not in ("geography", "year", "value")]
+        dim_vals = [v for v in vals if v not in (geo_col, "year", "value")]
         x_default = dim_vals[0] if dim_vals else (vals[0] if vals else None)
         y_default = "value" if "value" in vals else None
-        color_default = "geography" if "geography" in vals else None
+        color_default = geo_col if geo_col in vals else None
         return options, x_default, options, y_default, options, color_default, options, None
 
     @app.callback(
@@ -799,13 +802,14 @@ def register_callbacks(app: dash.Dash) -> None:
             chart_df = apply_dim_filters(chart_df, filters)
         if chart_df.empty:
             return {}
-        chart_df = chart_df.rename(columns={"name": "geography", "reference_period": "year", "estimate": "value"})
+        geo_col = geo_col_from_geo_list(geo_list)
+        chart_df = chart_df.rename(columns={"name": geo_col, "reference_period": "year", "estimate": "value"})
         universe = None
         if "universe" in long_df.columns:
             vals = long_df["universe"].dropna()
             if not vals.empty:
                 universe = str(vals.iloc[0])
-        title = _build_chart_title(x_field, color_field or None, vintages, universe, geo_list)
+        title = _build_chart_title(x_field, color_field or None, vintages, universe, geo_list, geo_col)
         y_axis_label = "Percent (%)" if (value_mode or "estimate") == "percent" else "Estimate"
         return render_chart_from_long(
             chart_df,

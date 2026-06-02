@@ -107,19 +107,20 @@ def _export_frictionless_mocked(df, group_code="B01001", vintages=None, chart_sp
 
 class TestGeoColLabel:
     def test_single_sumlevel_returns_plural(self):
-        from app.exports import _geo_col_label
-        label = _geo_col_label(["050"])
-        assert label == "Counties"
+        from app.selectors import geo_col_label
+        assert geo_col_label(["050"]) == "Counties"
 
     def test_multiple_sumlevels_returns_geography(self):
-        from app.exports import _geo_col_label
-        label = _geo_col_label(["050", "140"])
-        assert label == "Geography"
+        from app.selectors import geo_col_label
+        assert geo_col_label(["050", "140"]) == "Geography"
 
     def test_unknown_code_falls_back_to_geography(self):
-        from app.exports import _geo_col_label
-        label = _geo_col_label(["999"])
-        assert label == "Geography"
+        from app.selectors import geo_col_label
+        assert geo_col_label(["999"]) == "Geography"
+
+    def test_empty_list_returns_geography(self):
+        from app.selectors import geo_col_label
+        assert geo_col_label([]) == "Geography"
 
     def test_long_csv_uses_geo_label_as_column(self):
         from app.exports import export_frictionless
