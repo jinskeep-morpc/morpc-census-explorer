@@ -111,6 +111,14 @@ class TestExportFrictionless:
         assert isinstance(result, bytes)
         assert len(result) > 0
 
+    def test_zip_contains_readme(self):
+        result = _export_frictionless_mocked(_make_long())
+        with zipfile.ZipFile(io.BytesIO(result)) as zf:
+            assert "README.md" in zf.namelist()
+            content = zf.read("README.md").decode()
+        assert "morpc-census" in content
+        assert "dataandmaps@morpc.org" in content
+
     def test_result_is_valid_zip(self):
         result = _export_frictionless_mocked(_make_long())
         assert zipfile.is_zipfile(io.BytesIO(result))
