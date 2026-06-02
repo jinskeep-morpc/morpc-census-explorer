@@ -13,7 +13,7 @@ from pathlib import Path
 import frictionless
 import pandas as pd
 import yaml as _yaml
-from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
+from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group, _build_long_schema
 
 # morpc makes a Census API network call at import time in the PyPI release;
 # the vendor wheel used in the container has this removed, so this is safe
@@ -174,25 +174,30 @@ def export_frictionless(
         # ── 1. Raw long-form data ─────────────────────────────────────────────
         api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
         api.save(tmpdir)
-        # Overwrite the stub CSV with the actual (possibly multi-vintage) data
-        long_df.to_csv(tmpdir / api.filename, index=False)
 
         # Use api.name as the shared base for every file in the package
         # e.g. "census-acs-acs5-2023-county-franklin-b01001"
         base = api.name
 
-        # api.save() writes {base}.schema.yaml / {base}.resource.yaml (no .long. infix).
-        # Rename the schema, then rebuild the resource via frictionless with the
-        # updated path so the file is properly encoded and validated.
         long_csv_name    = f"{base}.long.csv"
         long_schema_name = f"{base}.long.schema.yaml"
         long_res_name    = f"{base}.long.resource.yaml"
 
-        (tmpdir / f"{base}.schema.yaml").rename(tmpdir / long_schema_name)
+        # Write the actual (possibly multi-vintage/multi-geo) data
+        long_df.to_csv(tmpdir / long_csv_name, index=False)
 
+        # api.save() built its schema from a single-vintage api.long; that schema
+        # may not match the full long_df (multiple vintages, geos).  Rebuild from
+        # long_df directly so the schema is always consistent with the CSV.
+        long_schema = _build_long_schema(long_df)
+        long_schema.to_yaml(str(tmpdir / long_schema_name))
+        (tmpdir / f"{base}.schema.yaml").unlink(missing_ok=True)
+
+        # Rebuild resource descriptor with frictionless (updating schema + path)
         old_res_descriptor = _yaml.safe_load(
             (tmpdir / f"{base}.resource.yaml").read_text(encoding="utf-8")
         )
+        old_res_descriptor["path"]   = long_csv_name
         old_res_descriptor["schema"] = long_schema_name
         long_resource = frictionless.Resource.from_descriptor(old_res_descriptor)
         with contextlib.chdir(tmpdir):
