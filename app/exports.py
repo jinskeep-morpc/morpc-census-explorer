@@ -186,6 +186,21 @@ def _apply_drops(long_df: pd.DataFrame, dropped_dims: list[str] | None) -> Dimen
     return dt
 
 
+def _geo_col_label(sumlevels: list[str]) -> str:
+    """Return the human-readable label for the geography name column.
+
+    Single sumlevel → plural display name (e.g. "Counties").
+    Multiple distinct sumlevels → "Geography".
+    """
+    if len(set(sumlevels)) != 1:
+        return "Geography"
+    try:
+        from morpc_census.geos import SumLevel
+        return SumLevel(sumlevels[0]).plural.title()
+    except Exception:
+        return "Geography"
+
+
 def export_frictionless(
     long_df: pd.DataFrame,
     group_code: str,
@@ -196,6 +211,7 @@ def export_frictionless(
     title: str = "",
     dropped_dims: list[str] | None = None,
     value_mode: str = "estimate",
+    all_sumlevels: list[str] | None = None,
 ) -> bytes:
     """Return zip bytes containing a Frictionless Data Package.
 
@@ -231,13 +247,24 @@ def export_frictionless(
         long_schema_name = f"{base}.long.schema.yaml"
         long_res_name    = f"{base}.long.resource.yaml"
 
-        # Write the actual (possibly multi-vintage/multi-geo) data
-        long_df.to_csv(tmpdir / long_csv_name, index=False)
+        # Determine geography column label from the selected sumlevel(s)
+        geo_label = _geo_col_label(all_sumlevels or [sumlevel])
 
-        # api.save() built its schema from a single-vintage api.long; that schema
-        # may not match the full long_df (multiple vintages, geos).  Rebuild from
-        # long_df directly so the schema is always consistent with the CSV.
+        # Write the actual (possibly multi-vintage/multi-geo) data, renaming
+        # the 'name' column to the geography label (e.g. "Counties").
+        long_df_export = long_df.rename(columns={"name": geo_label}) if "name" in long_df.columns else long_df.copy()
+        long_df_export.to_csv(tmpdir / long_csv_name, index=False)
+
+        # Build schema from long_df (still has 'name') then patch the field name
+        # to match the renamed column so the schema stays consistent with the CSV.
         long_schema = _build_long_schema(long_df)
+        if "name" in long_df.columns and geo_label != "name":
+            schema_desc = long_schema.to_descriptor()
+            for field in schema_desc.get("fields", []):
+                if field["name"] == "name":
+                    field["name"] = geo_label
+                    field["description"] = f"Geography name ({geo_label.lower()})"
+            long_schema = frictionless.Schema.from_descriptor(schema_desc)
         long_schema.to_yaml(str(tmpdir / long_schema_name))
         (tmpdir / f"{base}.schema.yaml").unlink(missing_ok=True)
 

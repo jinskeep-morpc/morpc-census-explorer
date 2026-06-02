@@ -270,6 +270,7 @@ def compute_frictionless_download(
         long_df = deserialise_long(store_data)
         scope = geo_list[0]["scope"]
         sumlevel = geo_list[0]["sumlevel"]
+        all_sumlevels = list(dict.fromkeys(g["sumlevel"] for g in geo_list))
         title = ""
         if group_options:
             opt = next((o for o in group_options if o["value"] == group_code), None)
@@ -282,6 +283,7 @@ def compute_frictionless_download(
             title=title,
             dropped_dims=dropped_dims or None,
             value_mode=value_mode or "estimate",
+            all_sumlevels=all_sumlevels,
         )
         vintage_str = "_".join(str(v) for v in sorted(vintages))
         filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
