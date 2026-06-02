@@ -13,26 +13,121 @@ from functools import lru_cache
 from morpc_census.api import Endpoint
 from morpc_census.constants import HIGHLEVEL_GROUP_DESC
 
+SURVEYS = {
+    "acs/acs5": {
+        "label": "ACS 5-Year Estimates",
+        "short": "acs5",
+        "default_vintage": 2024,
+        "has_moe": True,
+        "has_topics": True,
+        "source_url": "https://www.census.gov/data/developers/data-sets/acs-5year.html",
+    },
+    "acs/acs1": {
+        "label": "ACS 1-Year Estimates",
+        "short": "acs1",
+        "default_vintage": 2023,
+        "has_moe": True,
+        "has_topics": True,
+        "source_url": "https://www.census.gov/data/developers/data-sets/acs-1year.html",
+    },
+    "dec/pl": {
+        "label": "Decennial P.L. 94-171 Redistricting Data",
+        "short": "dec-pl",
+        "default_vintage": 2020,
+        "has_moe": False,
+        "has_topics": False,
+        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+    },
+    "dec/dhc": {
+        "label": "Decennial Demographic and Housing Characteristics",
+        "short": "dec-dhc",
+        "default_vintage": 2020,
+        "has_moe": False,
+        "has_topics": False,
+        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+    },
+    "dec/sf1": {
+        "label": "Decennial Summary File 1",
+        "short": "dec-sf1",
+        "default_vintage": 2010,
+        "has_moe": False,
+        "has_topics": False,
+        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
+    },
+}
+
+# backward-compat alias used in a few places
 SURVEY = "acs/acs5"
+
 _DEFAULT_LATEST_VINTAGE = 2024
 
 logger = logging.getLogger(__name__)
 
+_DEC_VINTAGE_FALLBACKS: dict[str, list[dict]] = {
+    "dec/pl":  [{"label": "2020", "value": 2020}, {"label": "2010", "value": 2010}],
+    "dec/dhc": [{"label": "2020", "value": 2020}],
+    "dec/sf1": [{"label": "2010", "value": 2010}],
+}
 
-def topic_options() -> list[dict]:
-    """Options from HIGHLEVEL_GROUP_DESC — no network call required."""
+
+def survey_options() -> list[dict]:
+    return [{"label": v["label"], "value": k} for k, v in SURVEYS.items()]
+
+
+@lru_cache(maxsize=len(SURVEYS))
+def vintage_options(survey: str = "acs/acs5") -> list[dict]:
+    """Available vintages for the given survey, newest first."""
+    try:
+        default = SURVEYS.get(survey, SURVEYS["acs/acs5"])["default_vintage"]
+        ep = Endpoint(survey, default)
+        return [{"label": str(y), "value": y} for y in sorted(ep.vintages, reverse=True)]
+    except Exception:
+        logger.warning("Could not fetch vintages for %s; using fallback.", survey)
+        if survey in _DEC_VINTAGE_FALLBACKS:
+            return _DEC_VINTAGE_FALLBACKS[survey]
+        return [{"label": str(y), "value": y} for y in range(2024, 2008, -1)]
+
+
+def topic_options(survey: str = "acs/acs5") -> list[dict]:
+    """Topic options — empty list for surveys without the ACS topic taxonomy."""
+    if not SURVEYS.get(survey, {}).get("has_topics", True):
+        return []
     return [{"label": label, "value": code} for code, label in HIGHLEVEL_GROUP_DESC.items()]
 
 
-@lru_cache(maxsize=1)
-def vintage_options() -> list[dict]:
-    """All available vintages for the ACS 5-year survey, newest first."""
+@lru_cache(maxsize=500)
+def group_options_for_topic(
+    topic_code: str | None,
+    survey: str = "acs/acs5",
+    vintage: int = _DEFAULT_LATEST_VINTAGE,
+) -> list[dict]:
+    """Groups for a topic (ACS) or all groups (decennial)."""
     try:
-        ep = Endpoint(SURVEY, _DEFAULT_LATEST_VINTAGE)
-        return [{"label": str(y), "value": y} for y in sorted(ep.vintages, reverse=True)]
+        ep = Endpoint(survey, vintage)
+        if not SURVEYS.get(survey, {}).get("has_topics", True):
+            # Decennial: return all groups
+            return [
+                {"label": f"{code} — {meta.get('description', code)}", "value": code}
+                for code, meta in sorted(ep.groups.items())
+            ]
+        # ACS: filter by two-digit topic prefix
+        if not topic_code:
+            return []
+        matching = {
+            code: meta
+            for code, meta in ep.groups.items()
+            if len(code) >= 3 and code[1:3] == topic_code
+        }
+        return [
+            {"label": f"{code} — {meta.get('description', code)}", "value": code}
+            for code, meta in sorted(matching.items())
+        ]
     except Exception:
-        logger.warning("Could not fetch vintages from Census API; using fallback range.")
-        return [{"label": str(y), "value": y} for y in range(2024, 2008, -1)]
+        logger.warning(
+            "Could not fetch groups for topic=%s survey=%s vintage=%s",
+            topic_code, survey, vintage,
+        )
+        return []
 
 
 def _scope_label(key: str, scope) -> str:
@@ -178,27 +273,3 @@ def geo_col_from_geo_list(geo_list: list[dict] | None) -> str:
     if not geo_list:
         return "Geography"
     return geo_col_label(list(dict.fromkeys(g["sumlevel"] for g in geo_list)))
-
-
-@lru_cache(maxsize=len(HIGHLEVEL_GROUP_DESC))
-def group_options_for_topic(topic_code: str, vintage: int = _DEFAULT_LATEST_VINTAGE) -> list[dict]:
-    """Groups matching a topic's two-digit prefix, fetched from the Census API.
-
-    Group codes have the form ``B01001`` where ``[1:3]`` gives the topic prefix.
-    Results are cached per topic_code + vintage to avoid redundant API calls.
-    Returns an empty list (with an error option) if the API is unreachable.
-    """
-    try:
-        ep = Endpoint(SURVEY, vintage)
-        matching = {
-            code: meta
-            for code, meta in ep.groups.items()
-            if len(code) >= 3 and code[1:3] == topic_code
-        }
-        return [
-            {"label": f"{code} — {meta.get('description', code)}", "value": code}
-            for code, meta in sorted(matching.items())
-        ]
-    except Exception:
-        logger.warning(f"Could not fetch groups for topic {topic_code!r}.")
-        return []

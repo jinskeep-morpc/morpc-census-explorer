@@ -4,7 +4,7 @@ import dash_bootstrap_components as dbc
 import dash_vega_components as dvc
 from dash import dcc, html
 
-from app.selectors import scope_options, sumlevel_options, topic_options, vintage_options
+from app.selectors import scope_options, sumlevel_options, survey_options, topic_options, vintage_options
 
 
 def _tip(label_text, tip_id, tooltip_text, label_cls="fw-semibold mb-1 small"):
@@ -69,6 +69,20 @@ def make_layout() -> dbc.Container:
                                         dbc.AccordionItem(
                                             [
                                                 *_tip(
+                                                    "Survey", "tip-survey",
+                                                    "The Census survey or dataset to query. "
+                                                    "ACS surveys provide annual estimates with margins of error. "
+                                                    "Decennial surveys are conducted every 10 years (2010, 2020) without margins of error.",
+                                                ),
+                                                dcc.Dropdown(
+                                                    id="survey-dropdown",
+                                                    options=survey_options(),
+                                                    value="acs/acs5",
+                                                    clearable=False,
+                                                    className="mb-2",
+                                                ),
+
+                                                *_tip(
                                                     "Topic", "tip-topic",
                                                     "A broad Census subject area (e.g., Demographics, Housing, Economics) "
                                                     "that groups related data tables.",
@@ -89,7 +103,7 @@ def make_layout() -> dbc.Container:
                                                 dcc.Dropdown(
                                                     id="group-dropdown",
                                                     options=[],
-                                                    placeholder="Select a topic first…",
+                                                    placeholder="Select a group…",
                                                     clearable=True,
                                                     disabled=True,
                                                     className="mb-2",
@@ -97,12 +111,12 @@ def make_layout() -> dbc.Container:
 
                                                 *_tip(
                                                     "Vintage(s)", "tip-vintage",
-                                                    "The survey year(s) to retrieve. ACS 5-year estimates are rolling "
-                                                    "averages published annually — select multiple years to compare across time.",
+                                                    "The survey year(s) to retrieve. Select multiple years to compare across time. "
+                                                    "Available years depend on the selected survey.",
                                                 ),
                                                 dcc.Dropdown(
                                                     id="vintage-dropdown",
-                                                    options=vintage_options(),
+                                                    options=vintage_options("acs/acs5"),
                                                     placeholder="One or more…",
                                                     multi=True,
                                                 ),

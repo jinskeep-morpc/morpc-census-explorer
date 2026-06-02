@@ -24,7 +24,7 @@ try:
 except Exception:
     ExcelChart = None  # type: ignore[assignment,misc]
 
-from app.selectors import SURVEY, geo_col_label
+from app.selectors import SURVEYS, geo_col_label
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,8 @@ _MORPC_SOURCE = {
     "path": "https://www.morpc.org",
 }
 _CENSUS_SOURCE = {
-    "title": "U.S. Census Bureau, American Community Survey 5-Year Estimates",
-    "path": "https://www.census.gov/data/developers/data-sets/acs-5year.html",
+    "title": "U.S. Census Bureau",
+    "path": "https://www.census.gov/data/developers/data-sets/",
 }
 _LICENSE = {
     "name": "CC-BY-4.0",
@@ -109,8 +109,7 @@ time.
 DATA SOURCE
 ------------------------------------------------------------------------
 
-U.S. Census Bureau, American Community Survey (ACS) 5-Year Estimates,
-accessed via the Census API (https://api.census.gov).
+U.S. Census Bureau, accessed via the Census API (https://api.census.gov).
 Census data are in the public domain.
 
 
@@ -118,11 +117,11 @@ TOOLS
 ------------------------------------------------------------------------
 
   morpc-census
-      Python library for fetching and processing ACS data.
+      Python library for fetching and processing Census data.
       https://github.com/jinskeep-morpc/morpc-census
 
   morpc-census-explorer
-      Dash web application for exploring, filtering, and exporting ACS
+      Dash web application for exploring, filtering, and exporting Census
       data.
       https://github.com/jinskeep-morpc/morpc-census-explorer
 
@@ -146,6 +145,17 @@ Please credit: U.S. Census Bureau via MORPC Census Explorer.
 """
 
 
+def _survey_source(long_df: pd.DataFrame) -> dict:
+    """Build a Census source dict derived from the survey column in long_df."""
+    survey_str = (
+        str(long_df["survey"].dropna().iloc[0])
+        if "survey" in long_df.columns and not long_df["survey"].dropna().empty
+        else "acs/acs5"
+    )
+    meta = SURVEYS.get(survey_str, SURVEYS["acs/acs5"])
+    return {"title": f"U.S. Census Bureau, {meta['label']}", "path": meta["source_url"]}
+
+
 def _long_resource_entry(
     long_df: pd.DataFrame,
     csv_name: str,
@@ -157,7 +167,7 @@ def _long_resource_entry(
     """Build a frictionless resource descriptor dict for the raw long CSV."""
     concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
     universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
-    survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else SURVEY
+    survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else "acs/acs5"
     year_str = ", ".join(str(v) for v in sorted(vintages))
 
     return {
@@ -171,7 +181,7 @@ def _long_resource_entry(
         "path": csv_name,
         "schema": schema_name,
         "mediatype": "text/csv",
-        "sources": [dict(_CENSUS_SOURCE)],
+        "sources": [_survey_source(long_df)],
     }
 
 
@@ -214,7 +224,14 @@ def export_frictionless(
     import json
 
     vintage = sorted(vintages)[0]
-    endpoint = Endpoint(SURVEY, vintage)
+    survey_str = (
+        str(long_df["survey"].dropna().iloc[0])
+        if "survey" in long_df.columns and not long_df["survey"].dropna().empty
+        else "acs/acs5"
+    )
+    survey_meta = SURVEYS.get(survey_str, SURVEYS["acs/acs5"])
+    census_source = _survey_source(long_df)
+    endpoint = Endpoint(survey_str, vintage)
     group = Group(endpoint, group_code)
     year_str = ", ".join(str(v) for v in sorted(vintages))
 
@@ -275,7 +292,7 @@ def export_frictionless(
 
         concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
         universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
-        survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else SURVEY
+        survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else "acs/acs5"
 
         if "name" in long_df.columns:
             geo_names = sorted(long_df["name"].dropna().unique().tolist())
@@ -360,7 +377,7 @@ def export_frictionless(
             "name": base,
             "title": pkg_title,
             "description": (
-                f"U.S. Census Bureau ACS 5-Year Estimates — {concept}. "
+                f"U.S. Census Bureau, {survey_meta['label']} — {concept}. "
                 f"Coverage: {geo_list_str}, vintage(s) {year_str}. "
                 f"Universe: {universe}. Survey: {survey}. "
                 f"Exported from the MORPC Census Explorer."
@@ -368,11 +385,11 @@ def export_frictionless(
             "version": "1.0.0",
             "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "keywords": (
-                ["census", "acs", "acs5", "demographics", group_code.lower()]
+                ["census", survey_meta.get("short", ""), "demographics", group_code.lower()]
                 + ([sumlevel.lower().replace(" ", "-")] if sumlevel else [])
             ),
             "licenses": [dict(_LICENSE)],
-            "sources":  [dict(_CENSUS_SOURCE)],
+            "sources":  [census_source],
             "contributors": [{**_MORPC_SOURCE, "email": "data@morpc.org", "role": "wrangler"}],
             "_concept":     concept,
             "_universe":    universe,
