@@ -39,22 +39,6 @@ SURVEYS = {
         "has_topics": False,
         "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
     },
-    "dec/dhc": {
-        "label": "Decennial Demographic and Housing Characteristics",
-        "short": "dec-dhc",
-        "default_vintage": 2020,
-        "has_moe": False,
-        "has_topics": False,
-        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
-    },
-    "dec/sf1": {
-        "label": "Decennial Summary File 1",
-        "short": "dec-sf1",
-        "default_vintage": 2010,
-        "has_moe": False,
-        "has_topics": False,
-        "source_url": "https://www.census.gov/data/developers/data-sets/decennial-census.html",
-    },
     "dec/dhc+sf1": {
         "label": "Decennial Detailed Demographics (DHC 2020 / SF1 2010 & 2000)",
         "short": "dec-dhc-sf1",
@@ -133,9 +117,8 @@ _DEFAULT_LATEST_VINTAGE = 2024
 logger = logging.getLogger(__name__)
 
 _DEC_VINTAGE_FALLBACKS: dict[str, list[dict]] = {
-    "dec/pl":  [{"label": "2020", "value": 2020}, {"label": "2010", "value": 2010}],
-    "dec/dhc": [{"label": "2020", "value": 2020}],
-    "dec/sf1": [{"label": "2010", "value": 2010}],
+    "dec/pl":      [{"label": "2020", "value": 2020}, {"label": "2010", "value": 2010}],
+    "dec/dhc+sf1": [{"label": "2020", "value": 2020}, {"label": "2010", "value": 2010}, {"label": "2000", "value": 2000}],
 }
 
 
