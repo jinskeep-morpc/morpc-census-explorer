@@ -10,6 +10,18 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import yaml as _yaml
+
+
+class _NoAliasDumper(_yaml.SafeDumper):
+    """SafeDumper that never emits anchors or aliases."""
+    def ignore_aliases(self, data):
+        return True
+
+
+def _yaml_dump(obj: object) -> str:
+    return _yaml.dump(obj, Dumper=_NoAliasDumper, default_flow_style=False,
+                      allow_unicode=True, sort_keys=False)
 from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
 
 # morpc makes a Census API network call at import time in the PyPI release;
@@ -107,7 +119,6 @@ def export_frictionless(
     - ``{base}.package.yaml`` — Frictionless Data Package descriptor
     """
     import json
-    import yaml
 
     vintage = sorted(vintages)[0]
     endpoint = Endpoint(SURVEY, vintage)
@@ -140,12 +151,9 @@ def export_frictionless(
         old_schema_path.rename(tmpdir / long_schema_name)
 
         # Patch the schema reference inside the resource YAML before renaming it
-        res_raw = yaml.safe_load(old_resource_path.read_text(encoding="utf-8"))
+        res_raw = _yaml.safe_load(old_resource_path.read_text(encoding="utf-8"))
         res_raw["schema"] = long_schema_name
-        (tmpdir / long_res_name).write_text(
-            yaml.dump(res_raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
-        )
+        (tmpdir / long_res_name).write_text(_yaml_dump(res_raw), encoding="utf-8")
         old_resource_path.unlink()
 
         # ── 2. Dimension table ───────────────────────────────────────────────
@@ -278,10 +286,7 @@ def export_frictionless(
         }
 
         package_filename = f"{base}.package.yaml"
-        (tmpdir / package_filename).write_text(
-            yaml.dump(datapackage, default_flow_style=False, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
-        )
+        (tmpdir / package_filename).write_text(_yaml_dump(datapackage), encoding="utf-8")
 
         # ── 5. Zip everything ────────────────────────────────────────────────
         buf = io.BytesIO()

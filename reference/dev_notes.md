@@ -1,3 +1,7 @@
+## 2026-06-02 — Remove YAML anchors from export files (#45)
+
+Added _NoAliasDumper (SafeDumper subclass with ignore_aliases=True) and _yaml_dump helper. Replaced all yaml.dump calls in exports.py with _yaml_dump so shared module-level dicts (_CENSUS_SOURCE, _LICENSE, etc.) are always written inline without &id/\*id anchors.
+
 ## 2026-06-02 — Uniform export file naming matching CensusAPI convention (#43)
 
 All exported files now share the same base name as CensusAPI.name (e.g. census-acs-acs5-2023-county-franklin-b01001). Renamed long schema/resource files to carry the .long. infix. Package descriptor renamed from datapackage.yaml to {base}.package.yaml.
