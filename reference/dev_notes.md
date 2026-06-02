@@ -1,3 +1,7 @@
+## 2026-06-02 — Drop empty export columns + plain text README + v0.3.4 wheel (#51, #105)
+
+DimensionTable._to_wide_flat() now drops all-null data columns; schema updates automatically. README converted from Markdown to plain text (.txt) with section headers and indented file descriptions. Updated vendor to morpc_census-0.3.4.
+
 ## 2026-06-02 — Fix long resource validation failure in frictionless export (#49)
 
 api.save() builds schema from single-vintage api.long; overwriting the CSV with multi-vintage long_df caused schema mismatch and 1000 frictionless errors. Now builds the schema from long_df directly using _build_long_schema and removes the stub schema written by api.save().

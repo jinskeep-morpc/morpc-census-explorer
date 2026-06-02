@@ -42,59 +42,107 @@ _LICENSE = {
     "title": "Creative Commons Attribution 4.0",
 }
 
-_README_MD = """\
-# MORPC Census Data Export
+_README_TXT = """\
+========================================================================
+MORPC Census Data Export
+========================================================================
 
-This archive was produced by the
-[MORPC Census Explorer](https://github.com/jinskeep-morpc/morpc-census-explorer)
-and contains a [Frictionless Data Package](https://specs.frictionlessdata.io/data-package/).
+This archive was produced by the MORPC Census Explorer and contains a
+Frictionless Data Package (https://specs.frictionlessdata.io/).
 
-## File structure
 
-All files share a common base name derived from the survey, vintage, geography scope,
-summary level, and Census group code — for example:
+FILE STRUCTURE
+------------------------------------------------------------------------
+
+All files share a common base name derived from the survey, vintage,
+geography scope, summary level, and Census group code.  Example:
 
     census-acs-acs5-2023-county-region10-b01001
 
-| File | Description |
-|------|-------------|
-| `{base}.package.yaml` | **Start here.** Frictionless Data Package descriptor listing all resources with titles, descriptions, and full metadata (concept, universe, geographies, vintages, license). |
-| `{base}.long.csv` | Raw long-format Census data. Each row is one variable for one geography and year. Columns: `geoidfq`, `name`, `reference_period`, `survey`, `concept`, `universe`, `variable`, `variable_label`, `estimate`, `moe`. |
-| `{base}.long.schema.yaml` | Frictionless Schema for the long CSV — field types, descriptions, primary key, and missing-value codes. |
-| `{base}.long.resource.yaml` | Frictionless Resource descriptor for the long CSV (validated). |
-| `{base}.table.csv` | **Dimension table.** Flat wide CSV with one row per dimension combination and one column per geography–year–value-type. Dim columns are listed first, followed by data columns named `"{Geography} - {Year} ({Value Type})"`. |
-| `{base}.table.schema.yaml` | Frictionless Schema for the dimension table CSV. |
-| `{base}.table.resource.yaml` | Frictionless Resource descriptor for the dimension table CSV (validated). |
-| `{base}.chart.vega.json` | Vega-Lite chart specification (JSON). Open at <https://vega.github.io/editor> to explore or modify interactively. |
-| `{base}.chart.svg` | Rendered chart as a scalable vector graphic. |
-| `README.md` | This file. |
+Start with {base}.package.yaml — it lists every resource with titles,
+descriptions, and full metadata.
 
-> **Note:** Chart files are only present when a chart was visible at export time.
+  {base}.package.yaml
+      Frictionless Data Package descriptor.  Contains concept, universe,
+      geography list, vintages, license, and an entry for every file
+      below.
 
-## Data source
+  {base}.long.csv
+      Raw long-format Census data.  Each row is one variable for one
+      geography and year.  Columns: geoidfq, name, reference_period,
+      survey, concept, universe, variable, variable_label, estimate, moe.
 
-Data are from the U.S. Census Bureau American Community Survey (ACS) 5-Year Estimates,
-accessed via the [Census API](https://api.census.gov).
+  {base}.long.schema.yaml
+      Frictionless Schema for the long CSV — field types, descriptions,
+      primary key, and missing-value codes.
+
+  {base}.long.resource.yaml
+      Frictionless Resource descriptor for the long CSV (validated).
+
+  {base}.table.csv
+      Dimension table.  Flat wide CSV with one row per dimension
+      combination and one column per geography-year-value-type.
+      Dimension columns come first, followed by data columns named
+      "{Geography} - {Year} ({Value Type})".
+
+  {base}.table.schema.yaml
+      Frictionless Schema for the dimension table CSV.
+
+  {base}.table.resource.yaml
+      Frictionless Resource descriptor for the dimension table CSV
+      (validated).
+
+  {base}.chart.vega.json
+      Vega-Lite chart specification (JSON).  Open at
+      https://vega.github.io/editor to explore or modify interactively.
+
+  {base}.chart.svg
+      Rendered chart as a scalable vector graphic.
+
+  README.txt
+      This file.
+
+Note: chart files are only present when a chart was visible at export
+time.
+
+
+DATA SOURCE
+------------------------------------------------------------------------
+
+U.S. Census Bureau, American Community Survey (ACS) 5-Year Estimates,
+accessed via the Census API (https://api.census.gov).
 Census data are in the public domain.
 
-## Tools
 
-| Package | Description | Repository |
-|---------|-------------|------------|
-| **morpc-census** | Python library for fetching and processing ACS data via the Census API | <https://github.com/jinskeep-morpc/morpc-census> |
-| **morpc-census-explorer** | Dash web application for exploring, filtering, and exporting ACS data | <https://github.com/jinskeep-morpc/morpc-census-explorer> |
+TOOLS
+------------------------------------------------------------------------
 
-## Contact
+  morpc-census
+      Python library for fetching and processing ACS data.
+      https://github.com/jinskeep-morpc/morpc-census
 
-**Mid-Ohio Regional Planning Commission (MORPC) — Data & Maps Team**
+  morpc-census-explorer
+      Dash web application for exploring, filtering, and exporting ACS
+      data.
+      https://github.com/jinskeep-morpc/morpc-census-explorer
+
+
+CONTACT
+------------------------------------------------------------------------
+
+Mid-Ohio Regional Planning Commission (MORPC) — Data & Maps Team
 dataandmaps@morpc.org
-<https://www.morpc.org>
+https://www.morpc.org
 
-## License
 
-This package and its metadata are released under the
-[Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
-Please credit: *U.S. Census Bureau via MORPC Census Explorer.*
+LICENSE
+------------------------------------------------------------------------
+
+This package and its metadata are released under the Creative Commons
+Attribution 4.0 International License (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+Please credit: U.S. Census Bureau via MORPC Census Explorer.
 """
 
 
@@ -335,7 +383,7 @@ def export_frictionless(
             raise RuntimeError("Package validation failed after save.")
 
         # ── 5. README ─────────────────────────────────────────────────────────
-        (tmpdir / "README.md").write_text(_README_MD, encoding="utf-8")
+        (tmpdir / "README.txt").write_text(_README_TXT, encoding="utf-8")
 
         # ── 6. Zip everything ─────────────────────────────────────────────────
         buf = io.BytesIO()
