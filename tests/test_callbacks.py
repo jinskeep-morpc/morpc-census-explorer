@@ -27,8 +27,8 @@ _GEO = [{"scope": "franklin", "sumlevel": "140"}]
 
 
 class TestComputeGroupOptions:
-    def test_no_topic_returns_disabled(self):
-        options, value, disabled = compute_group_options(None)
+    def test_no_topic_returns_disabled_for_acs(self):
+        options, value, disabled = compute_group_options(None, "acs/acs5")
         assert options == []
         assert value is None
         assert disabled is True
@@ -36,18 +36,25 @@ class TestComputeGroupOptions:
     def test_topic_enables_dropdown(self):
         grps = [{"label": "B01001 — Sex by Age", "value": "B01001"}]
         with patch("app.callbacks.group_options_for_topic", return_value=grps):
-            options, value, disabled = compute_group_options("01")
+            options, value, disabled = compute_group_options("01", "acs/acs5")
         assert disabled is False
         assert options == grps
 
     def test_topic_resets_value_to_none(self):
         with patch("app.callbacks.group_options_for_topic", return_value=[{"label": "X", "value": "X"}]):
-            _, value, _ = compute_group_options("01")
+            _, value, _ = compute_group_options("01", "acs/acs5")
         assert value is None
 
-    def test_empty_topic_string_disables(self):
-        options, value, disabled = compute_group_options("")
+    def test_empty_topic_string_disables_for_acs(self):
+        options, value, disabled = compute_group_options("", "acs/acs5")
         assert disabled is True
+
+    def test_dec_survey_no_topic_fetches_all_groups(self):
+        grps = [{"label": "P1 — Race", "value": "P1"}]
+        with patch("app.callbacks.group_options_for_topic", return_value=grps):
+            options, value, disabled = compute_group_options(None, "dec/pl")
+        assert disabled is False
+        assert options == grps
 
 
 class TestComputeFetchButtonDisabled:
@@ -69,8 +76,12 @@ class TestComputeFetchButtonDisabled:
     def test_disabled_when_group_missing(self):
         assert compute_fetch_button_disabled("01", None, [2023], _GEO) is True
 
-    def test_disabled_when_topic_missing(self):
-        assert compute_fetch_button_disabled(None, "B01001", [2023], _GEO) is True
+    def test_disabled_when_topic_missing_acs(self):
+        assert compute_fetch_button_disabled(None, "B01001", [2023], _GEO, "acs/acs5") is True
+
+    def test_enabled_without_topic_for_dec_survey(self):
+        # Decennial surveys don't require a topic selection
+        assert compute_fetch_button_disabled(None, "P1", [2020], _GEO, "dec/pl") is False
 
     def test_multiple_vintages_still_enabled(self):
         assert compute_fetch_button_disabled("01", "B01001", [2023, 2022], _GEO) is False

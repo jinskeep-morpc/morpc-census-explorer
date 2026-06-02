@@ -205,12 +205,13 @@ class TestExportFrictionless:
         df = _make_long()
         mock_api = _mock_census_api("B01001", 2022)
         fake_valid = MagicMock(valid=True, stats={})
-        with patch("app.exports.CensusAPI", return_value=mock_api) as mock_cls, \
+        with patch("app.exports.CensusAPI", return_value=mock_api), \
              patch("app.exports.Endpoint") as mock_ep, \
              patch("app.exports.Group"), \
              patch("frictionless.Resource.validate", return_value=fake_valid), \
              patch("frictionless.Package.validate", return_value=fake_valid):
             export_frictionless(df, "B01001", [2022, 2023], _SCOPE, _SUMLEVEL)
+        # survey derived from long_df["survey"] column which contains "acs/acs5"
         mock_ep.assert_called_once_with("acs/acs5", 2022)
 
     def test_zip_contains_package_yaml(self):

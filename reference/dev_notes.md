@@ -1,3 +1,16 @@
+## 2026-06-02 — Multi-survey support (acs/acs1, dec/pl, dec/dhc, dec/sf1)
+
+Added a Survey dropdown to the sidebar as the first selector in Step 1. The app now supports five surveys: ACS 5-Year, ACS 1-Year, Decennial P.L. 94-171, Decennial DHC, and Decennial SF1.
+
+**Key changes:**
+- `selectors.py`: replaced the `SURVEY` constant with a `SURVEYS` dict; added `survey_options()`; updated `vintage_options(survey)`, `topic_options(survey)`, and `group_options_for_topic(topic_code, survey, vintage)` to accept a survey parameter; kept `SURVEY = "acs/acs5"` as a backward-compat alias.
+- `fetch.py`: added `survey` parameter (default `"acs/acs5"`) to `fetch_long_for_vintage`, `fetch_all_vintages`, and `fetch_all_geos`.
+- `exports.py`: replaced static `_CENSUS_SOURCE` with a dynamic `_survey_source(long_df)` helper; updated package keywords, description, and README to be survey-agnostic.
+- `layout.py`: added `survey-dropdown` as the first element in accordion step 1; updated vintage tooltip text.
+- `callbacks.py`: added callbacks for survey→vintage, survey→topic (disable for dec), survey→MOE controls (disable for dec), and survey→group (all groups for dec). Threaded survey through fetch, chart caption, and export filename generation. Updated `compute_group_options` and `compute_fetch_button_disabled` to be survey-aware.
+
+Decennial surveys disable the Topic dropdown, the MOE checkbox, and Percent mode since those surveys have no margins of error and no ACS-style topic taxonomy.
+
 ## 2026-06-02 — Geography label in chart options and facet (closes #55)
 
 Moved geo_col_label/geo_col_from_geo_list to selectors.py. Chart axis callbacks now rename 'name' to the sumlevel plural (e.g. Counties) or 'Geography'. _chart_axis_options_from_long and _build_chart_title accept geo_col param. _field_label no longer hardcodes geography->Geography.

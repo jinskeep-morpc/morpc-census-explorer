@@ -9,7 +9,7 @@ from morpc_census.api import CensusAPI, DimensionTable, Endpoint, Group
 from sqlalchemy.orm import Session
 
 from app.cache import get_census_long, put_census_long
-from app.selectors import SURVEY
+from app.selectors import SURVEY  # kept for backward compat; not used directly below
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +23,21 @@ def fetch_long_for_vintage(
     vintage: int,
     scope: str,
     sumlevel: str,
+    survey: str = "acs/acs5",
 ) -> pd.DataFrame:
     """Return CensusAPI.long for one vintage, using the PostGIS cache when available."""
-    cached = get_census_long(session, SURVEY, vintage, group_code, scope, sumlevel)
+    cached = get_census_long(session, survey, vintage, group_code, scope, sumlevel)
     if cached is not None:
         logger.info("Cache hit: %s %s %s %s", group_code, vintage, scope, sumlevel)
         return cached
 
     logger.info("Cache miss — fetching from Census API: %s %s %s %s", group_code, vintage, scope, sumlevel)
-    endpoint = Endpoint(SURVEY, vintage)
+    endpoint = Endpoint(survey, vintage)
     group = Group(endpoint, group_code)
     api = CensusAPI(endpoint=endpoint, scope=scope, group=group, sumlevel=sumlevel)
     long_df = api.long
 
-    put_census_long(session, long_df, SURVEY, vintage, group_code, scope, sumlevel)
+    put_census_long(session, long_df, survey, vintage, group_code, scope, sumlevel)
     return long_df
 
 
@@ -46,10 +47,11 @@ def fetch_all_vintages(
     vintages: list[int],
     scope: str,
     sumlevel: str,
+    survey: str = "acs/acs5",
 ) -> pd.DataFrame:
     """Fetch and concatenate long DataFrames for all selected vintages."""
     dfs = [
-        fetch_long_for_vintage(session, group_code, vintage, scope, sumlevel)
+        fetch_long_for_vintage(session, group_code, vintage, scope, sumlevel, survey)
         for vintage in vintages
     ]
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
@@ -60,10 +62,11 @@ def fetch_all_geos(
     group_code: str,
     vintages: list[int],
     geo_list: list[dict],
+    survey: str = "acs/acs5",
 ) -> pd.DataFrame:
     """Fetch and concatenate long DataFrames for all (scope, sumlevel) pairs and vintages."""
     frames = [
-        fetch_all_vintages(session, group_code, vintages, geo["scope"], geo["sumlevel"])
+        fetch_all_vintages(session, group_code, vintages, geo["scope"], geo["sumlevel"], survey)
         for geo in geo_list
     ]
     non_empty = [df for df in frames if not df.empty]

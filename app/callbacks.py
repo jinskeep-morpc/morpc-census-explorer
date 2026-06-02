@@ -25,19 +25,26 @@ from app.fetch import (
     serialise_long,
 )
 from morpc_census.api import DimensionTable
-from app.selectors import geo_col_from_geo_list, group_options_for_topic, scope_label
+from app.selectors import geo_col_from_geo_list, group_options_for_topic, scope_label, survey_options, SURVEYS, topic_options, vintage_options
 
 
 # ---------------------------------------------------------------------------
 # Pure callback logic — testable without a running Dash server
 # ---------------------------------------------------------------------------
 
-def compute_group_options(topic_code: str | None) -> tuple[list, None, bool]:
+def compute_group_options(
+    topic_code: str | None,
+    survey: str = "acs/acs5",
+    vintage: int | None = None,
+) -> tuple[list, None, bool]:
     """Return (options, value, disabled) for the group dropdown."""
-    if not topic_code:
+    has_topics = SURVEYS.get(survey, {}).get("has_topics", True)
+    if has_topics and not topic_code:
         return [], None, True
-    options = group_options_for_topic(topic_code)
-    return options, None, False
+    default_vintage = SURVEYS.get(survey, {}).get("default_vintage", 2024)
+    v = int(vintage) if vintage else default_vintage
+    options = group_options_for_topic(topic_code, survey, v)
+    return options, None, not options
 
 
 def compute_fetch_button_disabled(
@@ -45,9 +52,12 @@ def compute_fetch_button_disabled(
     group: str | None,
     vintages: list | None,
     geo_list: list | None,
+    survey: str = "acs/acs5",
 ) -> bool:
-    """Return True (disabled) unless topic, group, vintages, and ≥1 geography are set."""
-    return not all([topic, group, vintages]) or not geo_list
+    """Return True (disabled) unless required fields (varying by survey) and ≥1 geography are set."""
+    has_topics = SURVEYS.get(survey, {}).get("has_topics", True)
+    topic_ok = bool(topic) if has_topics else True
+    return not all([topic_ok, group, vintages]) or not geo_list
 
 
 def _friendly_error(exc: Exception) -> str:
@@ -68,6 +78,7 @@ def compute_fetch_and_store(
     group_code: str,
     vintages: list[int],
     geo_list: list[dict],
+    survey: str = "acs/acs5",
 ) -> tuple[dict | None, str, str, bool]:
     """Fetch all vintages/geographies and return serialised long DataFrame + status message.
 
@@ -76,7 +87,7 @@ def compute_fetch_and_store(
     session = None
     try:
         session = SessionLocal()
-        long_df = fetch_all_geos(session, group_code, vintages, geo_list)
+        long_df = fetch_all_geos(session, group_code, vintages, geo_list, survey=survey)
         if long_df.empty:
             return no_update, "", "No data returned for the selected combination.", True
         row_count = len(long_df)
@@ -262,6 +273,7 @@ def compute_frictionless_download(
     group_options: list[dict] | None = None,
     dropped_dims: list[str] | None = None,
     value_mode: str | None = None,
+    survey: str | None = None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for frictionless zip, or None on error."""
     if not store_data or not group_code or not vintages or not geo_list:
@@ -286,7 +298,8 @@ def compute_frictionless_download(
             all_sumlevels=all_sumlevels,
         )
         vintage_str = "_".join(str(v) for v in sorted(vintages))
-        filename = f"census-acs5-{group_code.lower()}-{vintage_str}.zip"
+        survey_short = SURVEYS.get(survey or "acs/acs5", {}).get("short", "acs5")
+        filename = f"census-{survey_short}-{group_code.lower()}-{vintage_str}.zip"
         return dcc.send_bytes(zip_bytes, filename)
     except Exception as exc:
         logger.error("Frictionless export failed: %s", exc)
@@ -299,6 +312,7 @@ def compute_excel_download(
     vintages: list[int] | None,
     value_mode: str | None,
     show_moe: bool | None,
+    survey: str | None = None,
 ) -> dict | None:
     """Return dcc.send_bytes payload for Excel .xlsx, or no_update on error."""
     if not store_data or not group_code:
@@ -307,7 +321,8 @@ def compute_excel_download(
         long_df = deserialise_long(store_data)
         xlsx_bytes = export_excel(long_df, group_code, value_mode or "estimate", bool(show_moe))
         vintage_str = "_".join(str(v) for v in sorted(vintages or []))
-        filename = f"census-acs5-{group_code.lower()}-{vintage_str}.xlsx"
+        survey_short = SURVEYS.get(survey or "acs/acs5", {}).get("short", "acs5")
+        filename = f"census-{survey_short}-{group_code.lower()}-{vintage_str}.xlsx"
         return dcc.send_bytes(xlsx_bytes, filename)
     except Exception as exc:
         logger.error("Excel export failed: %s", exc)
@@ -400,6 +415,7 @@ def render_chart_from_long(
     height_in: float = 5.0,
     font_size: int = 12,
     group_code: str | None = None,
+    survey: str = "acs/acs5",
     facet_independent_y: bool = False,
     facet_independent_x: bool = False,
 ) -> dict:
@@ -407,7 +423,8 @@ def render_chart_from_long(
     if chart_df.empty:
         return {}
     try:
-        base_caption = "Source: U.S. Census Bureau, American Community Survey 5-Year Estimates"
+        survey_label = SURVEYS.get(survey, SURVEYS["acs/acs5"])["label"]
+        base_caption = f"Source: U.S. Census Bureau, {survey_label}"
         source_caption = f"{base_caption} ({group_code})" if group_code else base_caption
 
         width_px = int(width_in * 96)
@@ -593,13 +610,58 @@ def render_chart_image(
 
 def register_callbacks(app: dash.Dash) -> None:
     @app.callback(
+        Output("vintage-dropdown", "options"),
+        Output("vintage-dropdown", "value"),
+        Input("survey-dropdown", "value"),
+    )
+    def update_vintage_options(survey):
+        survey = survey or "acs/acs5"
+        return vintage_options(survey), None
+
+    @app.callback(
+        Output("topic-dropdown", "options"),
+        Output("topic-dropdown", "value"),
+        Output("topic-dropdown", "disabled"),
+        Output("topic-dropdown", "placeholder"),
+        Input("survey-dropdown", "value"),
+    )
+    def update_topic_options(survey):
+        survey = survey or "acs/acs5"
+        has_topics = SURVEYS.get(survey, {}).get("has_topics", True)
+        if not has_topics:
+            return [], None, True, "Not applicable for this survey"
+        return topic_options(survey), None, False, "Select a topic…"
+
+    @app.callback(
         Output("group-dropdown", "options"),
         Output("group-dropdown", "value"),
         Output("group-dropdown", "disabled"),
         Input("topic-dropdown", "value"),
+        Input("survey-dropdown", "value"),
+        Input("vintage-dropdown", "value"),
     )
-    def update_group_options(topic_code: str | None):
-        return compute_group_options(topic_code)
+    def update_group_options(topic_code, survey, vintage):
+        survey = survey or "acs/acs5"
+        vintage_val = vintage[0] if isinstance(vintage, list) and vintage else vintage
+        return compute_group_options(topic_code, survey, vintage_val)
+
+    @app.callback(
+        Output("show-moe-checkbox", "disabled"),
+        Output("show-moe-checkbox", "value"),
+        Output("value-mode-radio", "options"),
+        Output("value-mode-radio", "value"),
+        Input("survey-dropdown", "value"),
+        State("value-mode-radio", "value"),
+    )
+    def update_moe_controls(survey, current_mode):
+        survey = survey or "acs/acs5"
+        has_moe = SURVEYS.get(survey, {}).get("has_moe", True)
+        radio_options = [
+            {"label": "Estimate", "value": "estimate"},
+            {"label": "Percent", "value": "percent", "disabled": not has_moe},
+        ]
+        mode = "estimate" if not has_moe else current_mode
+        return not has_moe, False, radio_options, mode
 
     @app.callback(
         Output("fetch-button", "disabled"),
@@ -607,9 +669,10 @@ def register_callbacks(app: dash.Dash) -> None:
         Input("group-dropdown", "value"),
         Input("vintage-dropdown", "value"),
         Input("geo-list-store", "data"),
+        Input("survey-dropdown", "value"),
     )
-    def toggle_fetch_button(topic, group, vintages, geo_list):
-        return compute_fetch_button_disabled(topic, group, vintages, geo_list)
+    def toggle_fetch_button(topic, group, vintages, geo_list, survey):
+        return compute_fetch_button_disabled(topic, group, vintages, geo_list, survey or "acs/acs5")
 
     @app.callback(
         Output("geo-list-store", "data"),
@@ -639,11 +702,12 @@ def register_callbacks(app: dash.Dash) -> None:
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
+        State("survey-dropdown", "value"),
         running=[(Output("fetch-button", "disabled"), True, False)],
         prevent_initial_call=True,
     )
-    def fetch_and_store(n_clicks, group_code, vintages, geo_list):
-        return compute_fetch_and_store(n_clicks, group_code, vintages, geo_list)
+    def fetch_and_store(n_clicks, group_code, vintages, geo_list, survey):
+        return compute_fetch_and_store(n_clicks, group_code, vintages, geo_list, survey or "acs/acs5")
 
     @app.callback(
         Output("dim-drop-controls", "children"),
@@ -782,11 +846,12 @@ def register_callbacks(app: dash.Dash) -> None:
         State("group-dropdown", "value"),
         State("vintage-dropdown", "value"),
         State("geo-list-store", "data"),
+        State("survey-dropdown", "value"),
     )
     def update_chart(store_data, chart_type, x_field, y_field, color_field, facet_field,
                      chart_width, chart_height, chart_font_size, facet_independent_y, facet_independent_x,
                      filter_values, filter_ids,
-                     value_mode, dropped_dims, group_code, vintages, geo_list):
+                     value_mode, dropped_dims, group_code, vintages, geo_list, survey):
         if not store_data:
             return {}
         long_df = deserialise_long(store_data)
@@ -824,6 +889,7 @@ def register_callbacks(app: dash.Dash) -> None:
             height_in=float(chart_height) if chart_height is not None else 5.0,
             font_size=int(chart_font_size) if chart_font_size is not None else 12,
             group_code=group_code or None,
+            survey=survey or "acs/acs5",
             facet_independent_y=bool(facet_independent_y),
             facet_independent_x=bool(facet_independent_x),
         )
@@ -839,10 +905,11 @@ def register_callbacks(app: dash.Dash) -> None:
         State("group-dropdown", "options"),
         State("dropped-dims-store", "data"),
         State("value-mode-radio", "value"),
+        State("survey-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode):
-        return compute_frictionless_download(store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode)
+    def download_frictionless(n_clicks, store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode, survey):
+        return compute_frictionless_download(store_data, group_code, vintages, geo_list, chart_spec, group_options, dropped_dims, value_mode, survey)
 
     @app.callback(
         Output("download-excel", "data"),
@@ -852,7 +919,8 @@ def register_callbacks(app: dash.Dash) -> None:
         State("vintage-dropdown", "value"),
         State("value-mode-radio", "value"),
         State("show-moe-checkbox", "value"),
+        State("survey-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_excel(n_clicks, store_data, group_code, vintages, value_mode, show_moe):
-        return compute_excel_download(store_data, group_code, vintages, value_mode, show_moe)
+    def download_excel(n_clicks, store_data, group_code, vintages, value_mode, show_moe, survey):
+        return compute_excel_download(store_data, group_code, vintages, value_mode, show_moe, survey)
