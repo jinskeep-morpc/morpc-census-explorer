@@ -1,3 +1,7 @@
+## 2026-06-02 — Remove dec/dhc and dec/sf1 individual survey options (#67)
+
+Removed the `dec/dhc` and `dec/sf1` entries from the `SURVEYS` dict in `selectors.py`. The combined `dec/dhc+sf1` survey covers all three vintages (2020 via DHC, 2010/2000 via SF1), making the individual options redundant. Also updated `_DEC_VINTAGE_FALLBACKS` to replace both entries with a single `dec/dhc+sf1` fallback covering 2000–2020.
+
 ## Add dec/dhc+sf1 combined survey for cross-decade demographic comparison (#65)
 
 dec/dhc (2020) and dec/sf1 (2010, 2000) are the same demographic product
@@ -493,3 +497,4 @@ Branch: `main` (initial commit)
 
 - `python:3.12-slim` base image with `libgdal-dev` and `libpq-dev` for geopandas and psycopg2.
 - PostGIS service (`postgis/postgis:16-3.4`) with health check; app depends on `service_healthy` so migrations can run before the app starts.
+
