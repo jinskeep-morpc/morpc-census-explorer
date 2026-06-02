@@ -25,7 +25,7 @@ try:
 except Exception:
     ExcelChart = None  # type: ignore[assignment,misc]
 
-from app.selectors import SURVEYS, geo_col_label
+from app.selectors import SURVEYS, api_survey_for_vintage, geo_col_label
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +146,9 @@ Please credit: U.S. Census Bureau via MORPC Census Explorer.
 """
 
 
-def _survey_source(long_df: pd.DataFrame) -> dict:
+def _survey_source(long_df: pd.DataFrame, survey: str | None = None) -> dict:
     """Build a Census source dict derived from the survey column in long_df."""
-    survey_str = (
+    survey_str = survey or (
         str(long_df["survey"].dropna().iloc[0])
         if "survey" in long_df.columns and not long_df["survey"].dropna().empty
         else "acs/acs5"
@@ -164,11 +164,11 @@ def _long_resource_entry(
     group_code: str,
     vintages: list[int],
     scope: str,
+    survey: str = "acs/acs5",
 ) -> dict:
     """Build a frictionless resource descriptor dict for the raw long CSV."""
     concept  = str(long_df["concept"].dropna().iloc[0])  if "concept"  in long_df.columns else group_code
     universe = str(long_df["universe"].dropna().iloc[0]) if "universe" in long_df.columns else ""
-    survey   = str(long_df["survey"].dropna().iloc[0])   if "survey"   in long_df.columns else "acs/acs5"
     year_str = ", ".join(str(v) for v in sorted(vintages))
 
     return {
@@ -182,7 +182,7 @@ def _long_resource_entry(
         "path": csv_name,
         "schema": schema_name,
         "mediatype": "text/csv",
-        "sources": [_survey_source(long_df)],
+        "sources": [_survey_source(long_df, survey)],
     }
 
 
@@ -209,6 +209,7 @@ def export_frictionless(
     dropped_dims: list[str] | None = None,
     value_mode: str = "estimate",
     all_sumlevels: list[str] | None = None,
+    survey: str = "acs/acs5",
 ) -> bytes:
     """Return zip bytes containing a Frictionless Data Package.
 
@@ -224,15 +225,13 @@ def export_frictionless(
     """
     import json
 
-    vintage = sorted(vintages)[0]
-    survey_str = (
-        str(long_df["survey"].dropna().iloc[0])
-        if "survey" in long_df.columns and not long_df["survey"].dropna().empty
-        else "acs/acs5"
-    )
-    survey_meta = SURVEYS.get(survey_str, SURVEYS["acs/acs5"])
-    census_source = _survey_source(long_df)
-    endpoint = Endpoint(survey_str, vintage)
+    # Use the newest vintage for the metadata Endpoint; for combined surveys
+    # (e.g. dec/dhc+sf1) route to the correct actual API survey for that vintage.
+    vintage = sorted(vintages)[-1]
+    actual_survey = api_survey_for_vintage(survey, vintage)
+    survey_meta = SURVEYS.get(survey, SURVEYS["acs/acs5"])
+    census_source = _survey_source(long_df, survey)
+    endpoint = Endpoint(actual_survey, vintage)
     group = Group(endpoint, group_code)
     year_str = ", ".join(str(v) for v in sorted(vintages))
 
@@ -320,7 +319,7 @@ def export_frictionless(
 
         # ── 3. Chart artifacts ────────────────────────────────────────────────
         resources = [
-            _long_resource_entry(long_df, long_csv_name, long_schema_name, group_code, vintages, scope),
+            _long_resource_entry(long_df, long_csv_name, long_schema_name, group_code, vintages, scope, survey),
             {
                 "name": "dimension-table",
                 "title": table_title,

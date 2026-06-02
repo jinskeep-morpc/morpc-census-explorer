@@ -301,6 +301,7 @@ def compute_frictionless_download(
             dropped_dims=dropped_dims or None,
             value_mode=value_mode or "estimate",
             all_sumlevels=all_sumlevels,
+            survey=survey or "acs/acs5",
         )
         vintage_str = "_".join(str(v) for v in sorted(vintages))
         survey_short = SURVEYS.get(survey or "acs/acs5", {}).get("short", "acs5")
