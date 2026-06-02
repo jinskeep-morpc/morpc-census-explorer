@@ -83,6 +83,20 @@ def make_layout() -> dbc.Container:
                                                 ),
 
                                                 *_tip(
+                                                    "Vintage(s)", "tip-vintage",
+                                                    "The survey year(s) to retrieve. Select multiple years to compare across time. "
+                                                    "Available years depend on the selected survey. "
+                                                    "The group list shows only tables available in every selected year.",
+                                                ),
+                                                dcc.Dropdown(
+                                                    id="vintage-dropdown",
+                                                    options=vintage_options("acs/acs5"),
+                                                    placeholder="One or more…",
+                                                    multi=True,
+                                                    className="mb-2",
+                                                ),
+
+                                                *_tip(
                                                     "Topic", "tip-topic",
                                                     "A broad Census subject area (e.g., Demographics, Housing, Economics) "
                                                     "that groups related data tables.",
@@ -98,7 +112,8 @@ def make_layout() -> dbc.Container:
                                                 *_tip(
                                                     "Group", "tip-group",
                                                     "A specific Census data table within the topic (e.g., B01001 — Sex by Age). "
-                                                    "Each group contains a set of related variables.",
+                                                    "Each group contains a set of related variables. "
+                                                    "Only groups available in all selected vintages are shown.",
                                                 ),
                                                 dcc.Dropdown(
                                                     id="group-dropdown",
@@ -107,18 +122,6 @@ def make_layout() -> dbc.Container:
                                                     clearable=True,
                                                     disabled=True,
                                                     className="mb-2",
-                                                ),
-
-                                                *_tip(
-                                                    "Vintage(s)", "tip-vintage",
-                                                    "The survey year(s) to retrieve. Select multiple years to compare across time. "
-                                                    "Available years depend on the selected survey.",
-                                                ),
-                                                dcc.Dropdown(
-                                                    id="vintage-dropdown",
-                                                    options=vintage_options("acs/acs5"),
-                                                    placeholder="One or more…",
-                                                    multi=True,
                                                 ),
                                             ],
                                             title="1. Select Data",

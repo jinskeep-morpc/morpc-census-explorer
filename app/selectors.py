@@ -59,6 +59,34 @@ SURVEYS = {
 # backward-compat alias used in a few places
 SURVEY = "acs/acs5"
 
+# dec/pl 2000 uses different group codes for the same tables as 2010/2020.
+# Maps 2000 codes → canonical codes.  Invert for fetch-time translation.
+DEC_PL_GROUP_MAP: dict[str, str] = {
+    "PL001": "P1", "PL002": "P2", "PL003": "P3", "PL004": "P4",
+}
+
+
+def canonical_group_code(code: str, survey: str) -> str:
+    """Return the canonical group code for cross-vintage comparison.
+
+    Only differs from the raw code for dec/pl 2000 vintage
+    (PL001 → P1, etc.).  All other survey/vintage codes pass through unchanged.
+    """
+    if survey == "dec/pl":
+        return DEC_PL_GROUP_MAP.get(code, code)
+    return code
+
+
+def vintage_group_code(canonical: str, survey: str, vintage: int) -> str:
+    """Translate a canonical group code to the vintage-specific code used by the API.
+
+    Inverse of :func:`canonical_group_code` for dec/pl 2000.
+    """
+    if survey == "dec/pl" and vintage == 2000:
+        inv = {v: k for k, v in DEC_PL_GROUP_MAP.items()}
+        return inv.get(canonical, canonical)
+    return canonical
+
 _DEFAULT_LATEST_VINTAGE = 2024
 
 logger = logging.getLogger(__name__)
@@ -96,36 +124,66 @@ def topic_options(survey: str = "acs/acs5") -> list[dict]:
 
 
 @lru_cache(maxsize=500)
+def _groups_for_vintage(survey: str, vintage: int) -> dict[str, dict]:
+    """Return {canonical_code: meta} for one vintage (cached)."""
+    ep = Endpoint(survey, vintage)
+    return {
+        canonical_group_code(code, survey): meta
+        for code, meta in ep.groups.items()
+    }
+
+
 def group_options_for_topic(
     topic_code: str | None,
     survey: str = "acs/acs5",
-    vintage: int = _DEFAULT_LATEST_VINTAGE,
+    vintages: int | list[int] | tuple[int, ...] = _DEFAULT_LATEST_VINTAGE,
 ) -> list[dict]:
-    """Groups for a topic (ACS) or all groups (decennial)."""
+    """Groups for a topic (ACS) or all groups (decennial).
+
+    When *vintages* is a list/tuple, returns only groups present in every
+    selected vintage (intersection).  Group codes are canonical — for dec/pl
+    the 2000-specific codes (PL001–PL004) are normalised to P1–P4 before
+    the intersection so cross-vintage comparisons work correctly.
+    """
+    # Normalise vintages to a list
+    if isinstance(vintages, int):
+        vintage_list = [vintages]
+    else:
+        vintage_list = list(vintages)
+    if not vintage_list:
+        return []
+
     try:
-        ep = Endpoint(survey, vintage)
+        # Fetch canonical groups for each vintage and intersect
+        per_vintage = [_groups_for_vintage(survey, v) for v in vintage_list]
+        common_codes = set(per_vintage[0].keys())
+        for gmap in per_vintage[1:]:
+            common_codes &= gmap.keys()
+
+        # Use the metadata from the most-recent (first in list) vintage
+        # since vintages are listed newest-first by vintage_options()
+        newest = per_vintage[0]
+
         if not SURVEYS.get(survey, {}).get("has_topics", True):
-            # Decennial: return all groups
+            # Decennial: return all common groups
             return [
-                {"label": f"{code} — {meta.get('description', code)}", "value": code}
-                for code, meta in sorted(ep.groups.items())
+                {"label": f"{code} — {newest[code].get('description', code)}", "value": code}
+                for code in sorted(common_codes)
+                if code in newest
             ]
+
         # ACS: filter by two-digit topic prefix
         if not topic_code:
             return []
-        matching = {
-            code: meta
-            for code, meta in ep.groups.items()
-            if len(code) >= 3 and code[1:3] == topic_code
-        }
         return [
-            {"label": f"{code} — {meta.get('description', code)}", "value": code}
-            for code, meta in sorted(matching.items())
+            {"label": f"{code} — {newest[code].get('description', code)}", "value": code}
+            for code in sorted(common_codes)
+            if code in newest and len(code) >= 3 and code[1:3] == topic_code
         ]
     except Exception:
         logger.warning(
-            "Could not fetch groups for topic=%s survey=%s vintage=%s",
-            topic_code, survey, vintage,
+            "Could not fetch groups for topic=%s survey=%s vintages=%s",
+            topic_code, survey, vintage_list,
         )
         return []
 

@@ -1,3 +1,21 @@
+## Vintage-first UI with cross-vintage group intersection (#61)
+
+Reordered the data selection sidebar to Survey → Vintage → Topic → Group,
+following the Census API's natural hierarchy. The group dropdown now shows
+only tables present in ALL selected vintages (intersection).
+
+- selectors.py: Added DEC_PL_GROUP_MAP (PL001-PL004 → P1-P4),
+  canonical_group_code(), vintage_group_code(). Rewrote
+  group_options_for_topic() to accept vintages as a list/tuple, fetch
+  canonical groups per vintage via _groups_for_vintage() (lru_cached), and
+  intersect them so only common groups appear.
+- layout.py: Moved vintage-dropdown above topic/group. Updated tooltips.
+- callbacks.py: Changed vintage from State → Input in update_group_options;
+  passed full vintage list to compute_group_options.
+- fetch.py: fetch_long_for_vintage translates canonical → vintage-specific
+  code (PL001 for dec/pl 2000) at fetch time; cache key always uses canonical
+  code so different vintages of the same table share a cache key.
+
 ## 2026-06-02 — Multi-survey support (acs/acs1, dec/pl, dec/dhc, dec/sf1)
 
 Added a Survey dropdown to the sidebar as the first selector in Step 1. The app now supports five surveys: ACS 5-Year, ACS 1-Year, Decennial P.L. 94-171, Decennial DHC, and Decennial SF1.

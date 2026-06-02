@@ -35,15 +35,20 @@ from app.selectors import geo_col_from_geo_list, group_options_for_topic, scope_
 def compute_group_options(
     topic_code: str | None,
     survey: str = "acs/acs5",
-    vintage: int | None = None,
+    vintages: list[int] | int | None = None,
 ) -> tuple[list, None, bool]:
     """Return (options, value, disabled) for the group dropdown."""
     has_topics = SURVEYS.get(survey, {}).get("has_topics", True)
     if has_topics and not topic_code:
         return [], None, True
     default_vintage = SURVEYS.get(survey, {}).get("default_vintage", 2024)
-    v = int(vintage) if vintage else default_vintage
-    options = group_options_for_topic(topic_code, survey, v)
+    if not vintages:
+        vlist: tuple[int, ...] = (default_vintage,)
+    elif isinstance(vintages, int):
+        vlist = (vintages,)
+    else:
+        vlist = tuple(int(v) for v in vintages)
+    options = group_options_for_topic(topic_code, survey, vlist)
     return options, None, not options
 
 
@@ -638,12 +643,11 @@ def register_callbacks(app: dash.Dash) -> None:
         Output("group-dropdown", "disabled"),
         Input("topic-dropdown", "value"),
         Input("survey-dropdown", "value"),
-        State("vintage-dropdown", "value"),
+        Input("vintage-dropdown", "value"),
     )
-    def update_group_options(topic_code, survey, vintage):
+    def update_group_options(topic_code, survey, vintages):
         survey = survey or "acs/acs5"
-        vintage_val = vintage[0] if isinstance(vintage, list) and vintage else vintage
-        return compute_group_options(topic_code, survey, vintage_val)
+        return compute_group_options(topic_code, survey, vintages)
 
     @app.callback(
         Output("show-moe-checkbox", "disabled"),
